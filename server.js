@@ -3,7 +3,9 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 import axios from "axios";
-import PDFDocument from "pdfkit"; // <- added for PDF generation
+import PDFDocument from "pdfkit"; // For PDF generation
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
 
@@ -86,7 +88,6 @@ app.post("/api/verify-payment", async (req, res) => {
 });
 
 // ------------------ ADMIN ENDPOINT ------------------
-// View all payments
 app.get("/api/admin/payments", async (req, res) => {
     try {
         const payments = await Payment.find().sort({ createdAt: -1 });
@@ -140,9 +141,16 @@ app.get("/ticket-pdf/:id", async (req, res) => {
     }
 });
 
-// ------------------ DEFAULT ROUTE ------------------
-app.get("/", (req, res) => {
-    res.send("✅ VBS Ticketing Server is running");
+// ------------------ SERVE FRONTEND ------------------
+const __filename2 = fileURLToPath(import.meta.url);
+const __dirname2 = path.dirname(__filename2);
+
+// Serve frontend static files
+app.use(express.static(path.join(__dirname2, "frontend/dist")));
+
+// Catch-all route to serve index.html for frontend routing
+app.get("*", (req, res) => {
+    res.sendFile(path.join(__dirname2, "frontend/dist/index.html"));
 });
 
 // ------------------ START SERVER ------------------

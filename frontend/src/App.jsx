@@ -1,4 +1,4 @@
-import hero from "./assets/hero.jpg";
+import hero from "./assets/hero.png";
 import TicketForm from "./TicketForm";
 import "./App.css";
 
