@@ -30,8 +30,8 @@ export default function TicketForm() {
 			// 1️⃣ Create ticket via backend
 			const result = await verifyPayment({
 				reference: "manual_payment", // replace with actual reference for production
-				name,
-				phone,
+				name: name.trim(),
+				phone: phone.trim(),
 				amount: 300,
 				ticketType,
 			});
@@ -66,7 +66,8 @@ export default function TicketForm() {
 			setTicketType("Regular");
 		} catch (err) {
 			console.error(err);
-			alert("Failed to create ticket or download PDF");
+			const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || "Failed to create ticket or download PDF";
+			alert(msg);
 		} finally {
 			setLoading(false);
 		}

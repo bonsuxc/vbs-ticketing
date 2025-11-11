@@ -103,9 +103,6 @@ app.post("/api/verify-payment", async (req, res) => {
 			if (!name || !phone || typeof amount !== "number") {
 				return res.status(400).json({ error: "name, phone and amount are required for manual_payment" });
 			}
-			if (amount < 300) {
-				return res.status(400).json({ success: false, message: "Payment not valid or below required amount" });
-			}
 			const existing = await Payment.findOne({ phone });
 			if (existing) {
 				return res.status(400).json({ message: "This number already has a ticket." });
@@ -386,6 +383,38 @@ app.get("/api/tickets/:ticketId/verify", async (req, res) => {
 
 // ------------------ ADMIN ENDPOINT ------------------
 // Note: moved to protected route above
+
+// Manual lookup by phone number + access code (no amount threshold)
+app.post("/api/tickets/lookup", async (req, res) => {
+    try {
+        const { phone, accessCode } = req.body || {};
+        if (!phone || !accessCode) return res.status(400).json({ error: "Phone and access code are required" });
+
+        const ticket = await Payment.findOne({ phone, accessCode: String(accessCode).toUpperCase() });
+        if (!ticket) {
+            return res.status(404).json({ error: "Invalid phone number or access code" });
+        }
+
+        return res.json({
+            data: {
+                id: ticket._id,
+                name: ticket.name,
+                phone: ticket.phone,
+                amount: ticket.amount,
+                status: ticket.status,
+                reference: ticket.reference,
+                ticketType: ticket.ticketType,
+                ticketId: ticket.ticketId,
+                eventDate: ticket.eventDate,
+                eventTime: ticket.eventTime,
+                createdAt: ticket.createdAt,
+            },
+        });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to lookup ticket" });
+    }
+});
 
 // ------------------ TICKET PDF ENDPOINT ------------------
 app.get("/ticket-pdf/:id", async (req, res) => {
