@@ -11,7 +11,7 @@ export default function TicketsPortal() {
     <div className="ticket-preview-page" style={{ backgroundImage: `url(${hero})` }}>
       <div className="ticket-preview-overlay">
         <div className="ticket-preview-container">
-          <div className="ticket-card" style={{ maxWidth: 900, width: "100%" }}>
+          <div className="ticket-card" style={{ maxWidth: 1024, width: "100%" }}>
             <div className="ticket-card-header">
               <span className="ticket-season">Tickets Portal</span>
               <h1 className="ticket-title">VBS 2025</h1>
@@ -19,7 +19,7 @@ export default function TicketsPortal() {
             </div>
 
             {mode === "none" && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 20, width: "100%" }}>
                 <button className="portal-card" onClick={() => setMode("generate")}>Generate Ticket</button>
                 <button className="portal-card" onClick={() => setMode("view")}>View Ticket</button>
               </div>

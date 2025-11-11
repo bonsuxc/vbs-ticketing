@@ -212,7 +212,7 @@
 }
 
 .ticket-preview-page {
-  min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
   background-size: cover;
@@ -222,11 +222,11 @@
 
 .ticket-preview-overlay {
   flex: 1;
-  background: linear-gradient(180deg, rgba(15,23,42,0.65) 0%, rgba(15,23,42,0.85) 100%);
+  background: linear-gradient(180deg, rgba(15,23,42,0.68) 0%, rgba(15,23,42,0.9) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(24px, 5vw, 48px);
+  padding: max(16px, env(safe-area-inset-top)) clamp(16px, 5vw, 48px) max(16px, env(safe-area-inset-bottom));
 }
 
 .ticket-preview-container {
@@ -234,6 +234,7 @@
   max-width: 720px;
   display: flex;
   justify-content: center;
+  padding: 8px;
 }
 
 .ticket-card {
@@ -267,6 +268,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  margin-bottom: 8px;
 }
 
 .ticket-season {
@@ -389,19 +391,71 @@
   cursor: not-allowed;
 }
 
+/* Tickets Portal large action buttons */
+.portal-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 110px;
+  padding: 18px 22px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.85), rgba(30, 41, 59, 0.85));
+  color: #e2e8f0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.45), inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.portal-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 36px rgba(37, 99, 235, 0.35), inset 0 0 0 1px rgba(148, 163, 184, 0.25);
+  background: linear-gradient(145deg, rgba(30, 58, 138, 0.85), rgba(37, 99, 235, 0.85));
+}
+
+.portal-card:active {
+  transform: translateY(0);
+}
+
 @media (max-width: 640px) {
+  .portal-card {
+    min-height: 96px;
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .ticket-preview-overlay {
+    background: linear-gradient(180deg, rgba(15,23,42,0.72) 0%, rgba(15,23,42,0.94) 100%);
+    padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+  }
+
   .ticket-card {
-    padding: 24px;
+    padding: 20px;
     border-radius: 18px;
+    max-width: 380px;
   }
 
-  .ticket-grid {
-    grid-template-columns: 1fr;
+  .ticket-card-header { gap: 6px; }
+  .ticket-title { font-size: 28px; }
+  .ticket-subtitle { font-size: 0.95rem; }
+
+  /* Portal buttons: stack full width */
+  .portal-card {
+    width: 100%;
+    min-height: 56px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    font-size: 1rem;
+    box-shadow: 0 14px 24px rgba(15, 23, 42, 0.5), inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+    background: linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(37, 99, 235, 0.9));
   }
 
-  .ticket-qr-box {
-    width: min(200px, 65vw);
-  }
+  .ticket-grid { grid-template-columns: 1fr; }
+  .ticket-qr-box { width: min(200px, 65vw); }
 }
 
 @keyframes fadeInUp {
