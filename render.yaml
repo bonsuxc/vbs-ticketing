@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: vbs-ticketing
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: node server.js
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: MONGO_URI
+        sync: false
+      - key: HUBTEL_API_ID
+        sync: false
+      - key: HUBTEL_API_KEY
+        sync: false
+      - key: ADMIN_KEY
+        sync: false
+

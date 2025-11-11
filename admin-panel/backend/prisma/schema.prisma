@@ -1,0 +1,158 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  passwordHash String
+  fullName     String
+  role         AdminRole     @default(TICKET_MANAGER)
+  status       AdminStatus   @default(ACTIVE)
+  sessions     AdminSession[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model AdminSession {
+  id        String     @id @default(cuid())
+  token     String     @unique
+  admin     AdminUser  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  adminId   String
+  createdAt DateTime   @default(now())
+  expiresAt DateTime
+}
+
+model Event {
+  id           String       @id @default(cuid())
+  name         String
+  description  String?
+  location     String
+  startDate    DateTime
+  endDate      DateTime
+  ticketPrice  Decimal      @default(0)
+  capacity     Int?
+  tickets      Ticket[]
+  published    Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  fullName  String
+  email     String   @unique
+  phone     String?
+  tickets   Ticket[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Ticket {
+  id             String        @id @default(cuid())
+  code           String        @unique
+  ticketType     TicketType
+  price          Decimal       @default(0)
+  status         TicketStatus  @default(ACTIVE)
+  paymentStatus  PaymentStatus @default(PENDING)
+  issuedAt       DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  qrPayload      String?
+  pdfUrl         String?
+  notes          String?
+  event          Event         @relation(fields: [eventId], references: [id])
+  eventId        String
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  customerId     String
+  payment        Payment?
+}
+
+model Payment {
+  id           String        @id @default(cuid())
+  amount       Decimal       @default(0)
+  currency     String        @default("GHS")
+  status       PaymentStatus @default(PENDING)
+  provider     String?
+  reference    String?
+  receivedAt   DateTime?
+  ticket       Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId     String        @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  type        NotificationType
+  channel     NotificationChannel
+  subject     String?
+  payload     Json?
+  status      NotificationStatus @default(PENDING)
+  error       String?
+  ticket      Ticket?          @relation(fields: [ticketId], references: [id])
+  ticketId    String?
+  admin       AdminUser?       @relation(fields: [adminId], references: [id])
+  adminId     String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  TICKET_MANAGER
+  FINANCE
+}
+
+enum AdminStatus {
+  ACTIVE
+  SUSPENDED
+  INVITED
+}
+
+enum TicketType {
+  REGULAR
+  VIP
+  STAFF
+  CHILD
+}
+
+enum TicketStatus {
+  ACTIVE
+  CANCELLED
+  REDEEMED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIAL
+}
+
+enum NotificationType {
+  TICKET_CONFIRMATION
+  PAYMENT_REMINDER
+  EVENT_ALERT
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  SYSTEM
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}

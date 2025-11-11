@@ -5,15 +5,21 @@ import "./App.css";
 export default function App() {
   return (
     <div className="app">
-      {/* Hero Section */}
-      <div className="hero">
-        <img src={hero} alt="VBS Hero" className="hero-img" />
-        <h1>Welcome to VBS 2025</h1>
-        <p>Powered by OxTech</p>
-      </div>
+      <section className="hero" style={{ backgroundImage: `url(${hero})` }}>
+        <div className="hero-overlay">
+          <div className="hero-content">
+            <h1 className="title">Welcome to VBS 2025</h1>
+            <p className="subtitle">Join us for an unforgettable experience</p>
+            <div className="form-wrapper">
+              <TicketForm />
+            </div>
+          </div>
+        </div>
+      </section>
 
-      {/* Ticket Form Section */}
-      <TicketForm />
+      <footer className="footer">
+        <p>Powered by OxTech</p>
+      </footer>
     </div>
   );
 }

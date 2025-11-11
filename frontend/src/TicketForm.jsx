@@ -1,72 +1,103 @@
-import { useState } from "react";
-import axios from "axios";
-
-const API_BASE = "https://vbs-ticketing-2.onrender.com/"; // replace with your Render backend URL
+import { useEffect, useMemo, useState } from "react";
+import { verifyPayment, downloadTicketPDF } from "./api";
+import QRCode from "qrcode";
 
 export default function TicketForm() {
-    const [name, setName] = useState("");
-    const [phone, setPhone] = useState("");
-    const [loading, setLoading] = useState(false);
+	const [name, setName] = useState("");
+	const [phone, setPhone] = useState("");
+	const [ticketType, setTicketType] = useState("Regular");
+	const [loading, setLoading] = useState(false);
+	const [qrDataUrl, setQrDataUrl] = useState("");
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setLoading(true);
+	const ussdTelLink = useMemo(() => "tel:*713*7674%23", []);
+	const ussdDisplay = useMemo(() => "*713*7674#", []);
+	const dialButtonLabel = useMemo(() => "Dial 7137674#", []);
 
-        try {
-            // 1️⃣ Create ticket via backend
-            const res = await axios.post(`${API_BASE}/api/verify-payment`, {
-                reference: "manual_payment", // if using Hubtel, replace with actual reference
-                // or if you just want to create free tickets, backend can handle it
-                name,
-                phone,
-                amount: 300
-            });
+	// Generate QR for USSD dial
+	// %23 encodes # for USSD compatibility
+	useEffect(() => {
+		QRCode.toDataURL(ussdTelLink, { margin: 1, scale: 6 })
+			.then(setQrDataUrl)
+			.catch(() => setQrDataUrl(""));
+	}, [ussdTelLink]);
 
-            const ticketId = res.data.data._id;
+	const handleSubmit = async (e) => {
+		e.preventDefault();
+		setLoading(true);
 
-            // 2️⃣ Download the PDF ticket automatically
-            const pdfRes = await axios.get(`${API_BASE}/ticket-pdf/${ticketId}`, {
-                responseType: "blob",
-            });
+		try {
+			// 1️⃣ Create ticket via backend
+			const result = await verifyPayment({
+				reference: "manual_payment", // replace with actual reference for production
+				name,
+				phone,
+				amount: 300,
+				ticketType,
+			});
 
-            const url = window.URL.createObjectURL(new Blob([pdfRes.data]));
-            const link = document.createElement("a");
-            link.href = url;
-            link.setAttribute("download", `ticket-${ticketId}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
+			const created = result?.data;
+			if (!created) {
+				throw new Error("Ticket creation payload missing");
+			}
 
-            alert("Ticket created and downloaded successfully!");
-            setName("");
-            setPhone("");
-        } catch (err) {
-            console.error(err);
-            alert("Failed to create ticket or download PDF");
-        } finally {
-            setLoading(false);
-        }
-    };
+			// 2️⃣ Open ticket preview page
+			if (created.ticketId) {
+				window.open(`/ticket/${encodeURIComponent(created.ticketId)}`, "_blank");
+			}
 
-    return (
-        <form onSubmit={handleSubmit} className="ticket-form">
-            <input
-                type="text"
-                placeholder="Full Name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-            />
-            <input
-                type="text"
-                placeholder="Phone Number"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                required
-            />
-            <button type="submit" disabled={loading}>
-                {loading ? "Processing..." : "Get Ticket"}
-            </button>
-        </form>
-    );
+			// 3️⃣ Download the PDF ticket automatically (optional)
+			if (created._id) {
+				await downloadTicketPDF(created._id);
+			}
+
+			alert("Ticket created successfully! Your preview has opened in a new tab.");
+			setName("");
+			setPhone("");
+			setTicketType("Regular");
+		} catch (err) {
+			console.error(err);
+			alert("Failed to create ticket or download PDF");
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	return (
+		<div>
+			<form onSubmit={handleSubmit} className="ticket-form">
+				<input
+					type="text"
+					placeholder="Full Name"
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+					required
+				/>
+				<input
+					type="text"
+					placeholder="Phone Number"
+					value={phone}
+					onChange={(e) => setPhone(e.target.value)}
+					required
+				/>
+				<select value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
+					<option value="Regular">Regular</option>
+					<option value="VIP">VIP</option>
+				</select>
+				<button type="submit" disabled={loading}>
+					{loading ? "Processing..." : "Get Ticket"}
+				</button>
+			</form>
+
+			{/* QR Section */}
+			<div className="qr-section">
+				<p className="qr-label">Scan to Pay Instantly</p>
+				{qrDataUrl ? (
+					<img className="qr-image" src={qrDataUrl} alt={`Scan to dial ${ussdDisplay} to pay`} />
+				) : null}
+				<a className="dial-link" href={ussdTelLink}>
+					{dialButtonLabel}
+				</a>
+			</div>
+		</div>
+	);
 }
