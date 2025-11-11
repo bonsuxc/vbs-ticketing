@@ -42,3 +42,13 @@ export const fetchTicketByCode = async (ticketCode) => {
 		throw err;
 	}
 };
+
+export const lookupTicket = async ({ phone, accessCode }) => {
+    try {
+        const res = await axios.post(buildUrl(`/api/tickets/lookup`), { phone, accessCode });
+        return res.data?.data;
+    } catch (err) {
+        console.error(err);
+        throw err;
+    }
+};

@@ -83,8 +83,8 @@ export default function TicketPreview() {
 						<div className="ticket-card">
 							<div className="ticket-card-header">
 								<span className="ticket-season">Digital Pass</span>
-								<h1 className="ticket-title">VBS 2025</h1>
-								<p className="ticket-subtitle">Vacation Bible School Experience</p>
+								<h1 className="ticket-title">VBS 2025: Limitless</h1>
+								<p className="ticket-subtitle">International Community School Pakyi No. 2</p>
 							</div>
 
 							<div className="ticket-grid">
@@ -92,13 +92,14 @@ export default function TicketPreview() {
 								<InfoRow label="Phone Number" value={ticket?.phone} />
 								<InfoRow label="Ticket Type" value={ticket?.ticketType} />
 								<InfoRow label="Ticket Code" value={ticket?.ticketId} />
+								<InfoRow label="Secure Code" value={ticket?.accessCode} />
 								<InfoRow
 									label="Amount"
 									value={ticket?.amount ? `₵${Number(ticket.amount).toFixed(2)}` : "—"}
 								/>
 								<InfoRow
 									label="Event Date"
-									value={`${ticket?.eventDate || "Dec 15, 2025"} · ${ticket?.eventTime || "09:00 AM"}`}
+									value={`${ticket?.eventDate || "27th December 2025"} · ${ticket?.eventTime || "09:00 AM"}`}
 								/>
 								<InfoRow
 									label="Issued On"

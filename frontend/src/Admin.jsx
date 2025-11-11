@@ -39,6 +39,9 @@ export default function Admin() {
 	const [tickets, setTickets] = useState([]);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
+	const [importFile, setImportFile] = useState(null);
+	const [importing, setImporting] = useState(false);
+	const [importResults, setImportResults] = useState(null);
 
 	const [name, setName] = useState("");
 	const [phone, setPhone] = useState("");
@@ -135,6 +138,55 @@ export default function Admin() {
 		setError("");
 	}
 
+	async function handleExportTemplate() {
+		try {
+			const res = await fetch(`${API}/api/admin/manual-template`, {
+				method: "GET",
+				headers: { "x-admin-key": adminKey || "" },
+			});
+			if (!res.ok) {
+				const text = await res.text();
+				throw new Error(text || "Export failed");
+			}
+			const blob = await res.blob();
+			const url = window.URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = "manual-ticket-template.xlsx";
+			document.body.appendChild(a);
+			a.click();
+			window.URL.revokeObjectURL(url);
+		} catch (e) {
+			alert(e.message || "Export failed");
+		}
+	}
+
+	async function handleImport(e) {
+		e.preventDefault();
+		if (!importFile) return;
+		setImporting(true);
+		setImportResults(null);
+		try {
+			const fd = new FormData();
+			fd.append("file", importFile);
+			const res = await fetch(`${API}/api/admin/manual-import`, {
+				method: "POST",
+				headers: { "x-admin-key": adminKey || "" },
+				body: fd,
+			});
+			const json = await res.json().catch(() => undefined);
+			if (!res.ok) {
+				throw new Error(json?.error || "Import failed");
+			}
+			setImportResults(json);
+			await refresh();
+		} catch (e) {
+			setError(e.message || "Import failed");
+		} finally {
+			setImporting(false);
+		}
+	}
+
 	return (
 		<div className="app" style={{ background: "#0b1220", color: "#e2e8f0" }}>
 			<div className="hero" style={{ minHeight: "100vh", background: "none" }}>
@@ -160,6 +212,43 @@ export default function Admin() {
 							<button className="sign-out-button" type="button" onClick={handleLogout}>
 								Sign out
 							</button>
+							<div className="form-wrapper" style={{ maxWidth: 520 }}>
+								<h3 style={{ marginTop: 0 }}>Bulk Manual Tickets</h3>
+								<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+									<button type="button" onClick={handleExportTemplate}>Export Manual Ticket Template</button>
+									<form onSubmit={handleImport} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+										<input type="file" accept=".xlsx,.xls" onChange={(e) => setImportFile(e.target.files?.[0] || null)} />
+										<button type="submit" disabled={importing || !importFile}>{importing ? "Importing..." : "Import Filled Template"}</button>
+									</form>
+								</div>
+								{importResults ? (
+									<div style={{ marginTop: 12 }}>
+										<h4 style={{ marginTop: 0 }}>Import Summary</h4>
+										<div style={{ overflowX: "auto" }}>
+											<table style={{ width: "100%", borderCollapse: "collapse" }}>
+												<thead>
+													<tr style={{ textAlign: "left" }}>
+														<th style={{ padding: 8 }}>Row</th>
+														<th style={{ padding: 8 }}>Status</th>
+														<th style={{ padding: 8 }}>Ticket Code</th>
+														<th style={{ padding: 8 }}>Error</th>
+													</tr>
+												</thead>
+												<tbody>
+													{(importResults?.results || []).map((r, idx) => (
+														<tr key={idx} style={{ borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+															<td style={{ padding: 8 }}>{r.row}</td>
+															<td style={{ padding: 8 }}>{r.success ? "Success" : "Failed"}</td>
+															<td style={{ padding: 8, fontFamily: "monospace" }}>{r.ticketId || "—"}</td>
+															<td style={{ padding: 8, color: r.success ? "#a7f3d0" : "#fecaca" }}>{r.error || ""}</td>
+														</tr>
+													))}
+												</tbody>
+											</table>
+										</div>
+									</div>
+								) : null}
+							</div>
 							<div className="form-wrapper" style={{ maxWidth: 520 }}>
 								<h3 style={{ marginTop: 0 }}>Create Manual Ticket</h3>
 								<form className="ticket-form" onSubmit={handleCreate}>
@@ -204,6 +293,7 @@ export default function Admin() {
 												<th style={{ padding: 8 }}>Ticket Type</th>
 												<th style={{ padding: 8 }}>Amount</th>
 												<th style={{ padding: 8 }}>Ticket Code</th>
+												<th style={{ padding: 8 }}>Secure Code</th>
 												<th style={{ padding: 8 }}>Status</th>
 												<th style={{ padding: 8 }}>Created</th>
 												<th style={{ padding: 8 }}></th>
@@ -217,9 +307,15 @@ export default function Admin() {
 													<td style={{ padding: 8 }}>{t.ticketType}</td>
 													<td style={{ padding: 8 }}>₵{t.amount}</td>
 													<td style={{ padding: 8, fontFamily: "monospace" }}>{t.ticketId}</td>
+													<td style={{ padding: 8, fontFamily: "monospace" }}>{t.accessCode || "—"}</td>
 													<td style={{ padding: 8 }}>{t.status}</td>
 													<td style={{ padding: 8 }}>{new Date(t.createdAt).toLocaleString()}</td>
-													<td style={{ padding: 8 }}>
+													<td style={{ padding: 8, display: "flex", gap: 8 }}>
+														<button
+															onClick={() => window.open(`/ticket/${encodeURIComponent(t.ticketId)}`, "_blank")}
+														>
+															View
+														</button>
 														<button
 															style={{ background: "#ef4444" }}
 															onClick={() => handleDelete(t._id)}

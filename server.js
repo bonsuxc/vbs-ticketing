@@ -4,7 +4,12 @@ import dotenv from "dotenv";
 import cors from "cors";
 import axios from "axios";
 import PDFDocument from "pdfkit"; // For PDF generation
+import QRCode from "qrcode";
+import multer from "multer";
+import ExcelJS from "exceljs";
+
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
 
@@ -13,12 +18,22 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+const upload = multer();
 
 // ------------------ MONGODB CONNECTION ------------------
 const MONGO_URI = process.env.MONGO_URI;
 if (!MONGO_URI) {
 	console.error("❌ MONGO_URI is not set. Please configure environment variables.");
 	process.exit(1);
+}
+
+function generateAccessCode() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // omit ambiguous
+    let code = "";
+    for (let i = 0; i < 5; i += 1) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
 }
 const ADMIN_KEY = process.env.ADMIN_KEY || "VBSAdmin#8372";
 
@@ -42,6 +57,7 @@ const paymentSchema = new mongoose.Schema(
 		ticketId: { type: String, unique: true, required: true },
 		eventDate: { type: String, default: "Dec 15, 2025" },
 		eventTime: { type: String, default: "09:00 AM" },
+		accessCode: { type: String, uppercase: true }, // for manual tickets only
 		createdAt: { type: Date, default: Date.now },
 	},
 	{ timestamps: true }
@@ -103,6 +119,7 @@ app.post("/api/verify-payment", async (req, res) => {
 				reference,
 				ticketType: req.body.ticketType || "Regular",
 				ticketId,
+				accessCode: generateAccessCode(),
 			});
 			await newPayment.save();
 			return res.json({ success: true, message: "Ticket issued successfully", data: newPayment });
@@ -135,6 +152,7 @@ app.post("/api/verify-payment", async (req, res) => {
                 reference: reference,
 				ticketType: req.body.ticketType || "Regular",
 				ticketId,
+                accessCode: generateAccessCode(),
             });
 
             await newPayment.save();
@@ -149,6 +167,103 @@ app.post("/api/verify-payment", async (req, res) => {
 });
 
 // ------------------ ADMIN MANAGEMENT ENDPOINTS ------------------
+// Export manual ticket template with 100 pre-generated secure codes
+app.get("/api/admin/manual-template", requireAdmin, async (req, res) => {
+    try {
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("ManualTickets");
+        sheet.columns = [
+            { header: "Name", key: "name", width: 24 },
+            { header: "Phone Number", key: "phone", width: 18 },
+            { header: "Ticket Type", key: "ticketType", width: 12 },
+            { header: "Payment Status", key: "status", width: 14 },
+            { header: "Secure Code", key: "accessCode", width: 14 },
+        ];
+
+        const codes = new Set();
+        while (codes.size < 100) {
+            codes.add(generateAccessCode());
+        }
+        Array.from(codes).forEach((code) => {
+            sheet.addRow({ name: "", phone: "", ticketType: "Regular", status: "Paid", accessCode: code });
+        });
+
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", "attachment; filename=manual-ticket-template.xlsx");
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (e) {
+        console.error(e);
+        return res.status(500).send("Failed to generate template");
+    }
+});
+
+// Import manual tickets using provided secure codes (no auto-generation here)
+app.post("/api/admin/manual-import", requireAdmin, upload.single("file"), async (req, res) => {
+    try {
+        if (!req.file || !req.file.buffer) {
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(req.file.buffer);
+        const sheet = workbook.worksheets[0];
+        if (!sheet) return res.status(400).json({ error: "Empty workbook" });
+
+        // Map headers
+        const headerRow = sheet.getRow(1);
+        const headers = {};
+        headerRow.eachCell((cell, colNumber) => {
+            headers[String(cell.value).toLowerCase()] = colNumber;
+        });
+        const get = (row, headerName) => row.getCell(headers[headerName] || 0).value || "";
+
+        const results = [];
+        for (let i = 2; i <= sheet.rowCount; i += 1) {
+            const row = sheet.getRow(i);
+            const name = String(get(row, "name")).trim();
+            const phone = String(get(row, "phone number")).trim() || String(get(row, "phone")).trim();
+            const ticketType = String(get(row, "ticket type")).trim() || "Regular";
+            const status = String(get(row, "payment status")).trim() || "Paid";
+            const providedCode = String(get(row, "secure code")).trim();
+
+            if (!name && !phone && !providedCode) continue; // skip empty rows
+
+            try {
+                if (!name || !phone) throw new Error("Name and Phone are required");
+                if (!providedCode) throw new Error("Secure Code is required");
+                const accessCode = providedCode.toUpperCase();
+                if (accessCode.length !== 5) throw new Error("Secure Code must be 5 characters");
+
+                const existingByPhone = await Payment.findOne({ phone });
+                if (existingByPhone) throw new Error("Phone already has a ticket");
+                const existingByCode = await Payment.findOne({ accessCode });
+                if (existingByCode) throw new Error("Secure Code already used");
+
+                const ticketId = await generateTicketId();
+                const amount = ticketType === "VIP" ? 500 : 300;
+                const doc = new Payment({
+                    name,
+                    phone,
+                    amount,
+                    status: status || "Paid",
+                    reference: "bulk_import",
+                    ticketType,
+                    ticketId,
+                    accessCode,
+                });
+                await doc.save();
+                results.push({ row: i, success: true, ticketId: doc.ticketId });
+            } catch (err) {
+                results.push({ row: i, success: false, error: err.message });
+            }
+        }
+
+        return res.json({ results });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to import" });
+    }
+});
 // Create manual payment/ticket
 app.post("/api/admin/create", requireAdmin, async (req, res) => {
 	try {
@@ -170,6 +285,7 @@ app.post("/api/admin/create", requireAdmin, async (req, res) => {
 			reference: `admin_${ticketTypeValue}`,
 			ticketType: ticketTypeValue,
 			ticketId,
+			accessCode: generateAccessCode(),
 		});
 		await newPayment.save();
 		return res.json({ success: true, message: "Ticket created successfully!", data: newPayment });
@@ -266,6 +382,8 @@ app.get("/api/tickets/:ticketId/verify", async (req, res) => {
 	}
 });
 
+// (duplicate lookup route removed)
+
 // ------------------ ADMIN ENDPOINT ------------------
 // Note: moved to protected route above
 
@@ -277,34 +395,127 @@ app.get("/ticket-pdf/:id", async (req, res) => {
 
         if (!ticket) return res.status(404).send("Ticket not found");
 
-        const doc = new PDFDocument({ size: "A5", margin: 50 });
+        // Slim ticket format (~receipt/cinema style)
+        const doc = new PDFDocument({ size: [595, 220], margin: 16 });
 
         res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `attachment; filename=ticket-${ticket.id}.pdf`);
+        res.setHeader("Content-Disposition", `attachment; filename=ticket-${ticket.ticketId || ticket.id}.pdf`);
 
         doc.pipe(res);
 
-        // Background
-        doc.rect(0, 0, doc.page.width, doc.page.height).fill("#f2f2f2");
 
-        // Header
-        doc.fillColor("#0077ff").fontSize(22).text("VBS 2025", { align: "center" });
-        doc.moveDown(0.5);
-        doc.fontSize(12).fillColor("black")
-            .text(`Date: Dec 15, 2025`, { align: "center" })
-            .text(`Seat: General Admission`, { align: "center" });
+        // Dimensions
+        const pageW = doc.page.width;
+        const pageH = doc.page.height;
+        const margin = 16;
+        const stubW = Math.floor(pageW * 0.32);
+        const leftW = pageW - stubW - margin; // leave some breathing space on the right
+        const leftX = margin;
+        const leftY = margin;
+        const leftH = pageH - margin * 2;
+        const stubX = leftX + leftW;
+        const stubY = margin;
+        const stubH = leftH;
 
-        doc.moveDown(1);
+        // Backgrounds
+        // Left: hero image backdrop
+        const assetsDir = path.join(__dirname2, "frontend", "dist", "assets");
+        let heroPath = null;
+        try {
+            const files = fs.readdirSync(assetsDir);
+            const heroFile = files.find((f) => /^hero-.*\.(png|jpg|jpeg)$/i.test(f));
+            if (heroFile) heroPath = path.join(assetsDir, heroFile);
+        } catch {}
+        doc.save();
+        doc.rect(leftX, leftY, leftW, leftH).clip();
+        if (heroPath && fs.existsSync(heroPath)) {
+            doc.image(heroPath, leftX, leftY, { width: leftW, height: leftH, align: "center", valign: "center" });
+        } else {
+            doc.rect(leftX, leftY, leftW, leftH).fill("#0b1220");
+        }
+        // overlay for readability
+        doc.rect(leftX, leftY, leftW, leftH).fillOpacity(0.45).fill("#000").fillOpacity(1);
+        doc.restore();
 
-        // Attendee info box
-        doc.rect(50, 150, 400, 120).fill("#ffffff").stroke();
-        doc.fillColor("black").fontSize(16)
-            .text(`Ticket ID: ${ticket.id}`, 60, 160)
-            .text(`Name: ${ticket.name}`, 60, 190)
-            .text(`Phone: ${ticket.phone}`, 60, 220);
+        // Right stub background (rounded)
+        doc.save();
+        doc.fill("#0f172a");
+        if (typeof doc.roundedRect === "function") {
+            doc.roundedRect(stubX, stubY, stubW, stubH, 10).fill();
+        } else {
+            doc.rect(stubX, stubY, stubW, stubH).fill();
+        }
+        doc.restore();
 
-        // Footer: Powered by OxTech
-        doc.fontSize(10).fillColor("gray").text("Powered by OxTech", { align: "center", baseline: "bottom" });
+        // Perforation line between panels
+        doc.save();
+        doc.strokeColor("#94a3b8").dash(4, { space: 3 });
+        doc.moveTo(stubX, stubY + 10).lineTo(stubX, stubY + stubH - 10).stroke();
+        doc.undash();
+        doc.restore();
+
+        // Header on left panel
+        const eventTitle = "VBS 2025: Limitless";
+        const eventDate = "27th December 2025";
+        const eventTime = ticket.eventTime || "09:00 AM";
+        const accent = "#60a5fa"; // modern blue
+        const subtle = "#cbd5e1"; // slate-300
+        const white = "#ffffff";
+
+        doc.fillColor(white).font("Helvetica-Bold").fontSize(28)
+            .text(eventTitle, leftX + 18, leftY + 14, { width: leftW - 36, align: "left" });
+        doc.font("Helvetica").fontSize(12).fillColor(subtle)
+            .text(`Date: ${eventDate} · ${eventTime}`, leftX + 18, leftY + 50, { width: leftW - 36 })
+            .text(`Venue: International Community School Pakyi No. 2`, { width: leftW - 36 })
+            .fillColor(white)
+            .text(`Type: ${ticket.ticketType || "Regular"}`, { width: leftW - 36 });
+
+        // Ticket info on left panel (single-line values, no overlapping)
+        const infoY = leftY + 96; // push down below header lines
+        let y = infoY;
+        const lineGap = 18;
+        doc.font("Helvetica-Bold").fontSize(14).fillColor(white).text(`Name: ${ticket.name}`, leftX + 18, y, { width: leftW - 36 });
+        y += lineGap;
+        doc.fontSize(14).text(`Phone: ${ticket.phone}`, leftX + 18, y, { width: leftW - 36 });
+        y += lineGap;
+        doc.fontSize(14).text(`Ticket ID: ${ticket.ticketId}`, leftX + 18, y, { width: leftW - 36 });
+        y += lineGap;
+        doc.fontSize(14).fillColor(accent).text(`Secure Code: ${ticket.accessCode || "—"}`, leftX + 18, y, { width: leftW - 36 });
+        y += lineGap;
+        doc.fillColor(white).fontSize(14).text(`Amount: GHS ${Number(ticket.amount).toFixed(2)}`, leftX + 18, y, { width: leftW - 36 });
+
+        // QR on stub
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        const verifyUrl = `${baseUrl}/api/tickets/${encodeURIComponent(ticket.ticketId)}/verify`;
+        const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, scale: 5 });
+        const qrSize = Math.min(110, stubW - 40);
+        const qrX = (stubW - qrSize) / 2;
+        const qrY = stubY + 26;
+        doc.image(qrDataUrl, stubX + qrX, qrY, { width: qrSize, height: qrSize });
+        doc.font("Helvetica").fontSize(10).fillColor(subtle).text("Scan to verify", stubX, qrY + qrSize + 6, { width: stubW, align: "center" });
+
+        // Admit One + secure code on stub
+        doc.font("Helvetica-Bold").fontSize(12).fillColor(white).text("ADMIT ONE", stubX, stubY + 18, { width: stubW, align: "center" });
+        doc.font("Helvetica-Bold").fontSize(12).fillColor(accent).text(`Code: ${ticket.accessCode || "—"}`, stubX, qrY + qrSize + 20, { width: stubW, align: "center" });
+
+        // Branding on stub bottom
+        const assetsDirLogo = path.join(__dirname2, "frontend", "dist", "assets");
+        let logoPath = null;
+        try {
+            const files = fs.readdirSync(assetsDirLogo);
+            const logoFile = files.find((f) => /(oxtech|logo).*\.(png|jpg|jpeg|webp|svg)$/i.test(f));
+            if (logoFile) logoPath = path.join(assetsDirLogo, logoFile);
+        } catch {}
+        const brandY = stubY + stubH - 22;
+        if (logoPath && fs.existsSync(logoPath)) {
+            doc.save();
+            doc.opacity(0.9);
+            const imgW = Math.min(60, stubW - 20);
+            const imgX = stubX + stubW - imgW - 10;
+            doc.image(logoPath, imgX, brandY - 14, { width: imgW });
+            doc.restore();
+        }
+        doc.font("Helvetica").fontSize(10).fillColor(subtle).text("Powered by OxTech", stubX + 10, brandY, { width: stubW - 20, align: "left" });
 
         doc.end();
     } catch (err) {

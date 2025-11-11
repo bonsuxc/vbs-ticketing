@@ -8,6 +8,7 @@ export default function TicketForm() {
 	const [ticketType, setTicketType] = useState("Regular");
 	const [loading, setLoading] = useState(false);
 	const [qrDataUrl, setQrDataUrl] = useState("");
+    const [secureCode, setSecureCode] = useState("");
 
 	const ussdTelLink = useMemo(() => "tel:*713*7674%23", []);
 	const ussdDisplay = useMemo(() => "*713*7674#", []);
@@ -40,6 +41,11 @@ export default function TicketForm() {
 				throw new Error("Ticket creation payload missing");
 			}
 
+			// Show secure code to the user (for viewing tickets later)
+			if (created.accessCode) {
+				setSecureCode(String(created.accessCode));
+			}
+
 			// 2️⃣ Open ticket preview page
 			if (created.ticketId) {
 				window.open(`/ticket/${encodeURIComponent(created.ticketId)}`, "_blank");
@@ -50,7 +56,11 @@ export default function TicketForm() {
 				await downloadTicketPDF(created._id);
 			}
 
-			alert("Ticket created successfully! Your preview has opened in a new tab.");
+			alert(
+				created.accessCode
+					? `Ticket created successfully! Your secure code is ${created.accessCode}. Your preview has opened in a new tab.`
+					: "Ticket created successfully! Your preview has opened in a new tab."
+			);
 			setName("");
 			setPhone("");
 			setTicketType("Regular");
@@ -87,6 +97,14 @@ export default function TicketForm() {
 					{loading ? "Processing..." : "Get Ticket"}
 				</button>
 			</form>
+
+			{secureCode ? (
+				<div className="notice" style={{ marginTop: 12 }}>
+					<strong>Your Secure Access Code:</strong>
+					<div style={{ fontFamily: "monospace", fontSize: 18, marginTop: 4 }}>{secureCode}</div>
+					<small>Keep this code safe. You will need it with your phone number to view your ticket.</small>
+				</div>
+			) : null}
 
 			{/* QR Section */}
 			<div className="qr-section">

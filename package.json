@@ -4,9 +4,9 @@
   "description": "VBS Ticketing System powered by OxTech — handles payments, OTP verification, and QR code ticket generation for users.",
   "main": "server.js",
   "scripts": {
-		"start": "node server.js",
-		"dev": "nodemon server.js",
-		"build": "cd frontend && npm install && npm run build"
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "build": "cd frontend && npm install && npm run build"
   },
   "author": "Osei Bonsu Aboagye (OxTech Studio)",
   "license": "MIT",
@@ -16,14 +16,19 @@
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.21.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.8.0",
+    "multer": "^2.0.2",
     "pdfkit": "^0.17.2",
     "qrcode": "^1.5.3",
     "twilio": "^5.3.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.7"
+    "autoprefixer": "^10.4.22",
+    "nodemon": "^3.1.7",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.17"
   }
 }
