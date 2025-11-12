@@ -567,6 +567,42 @@ app.get("/ticket-pdf/:id", async (req, res) => {
     }
 });
 
+// ------------------ DASHBOARD SUMMARY ------------------
+app.get("/api/dashboard", requireAdmin, async (req, res) => {
+    try {
+        // Totals
+        const [paidCount, pendingCount, revenueAgg, recent] = await Promise.all([
+            prisma.payment.count({ where: { status: "Paid" } }),
+            prisma.payment.count({ where: { NOT: { status: "Paid" } } }),
+            prisma.payment.aggregate({ _sum: { amount: true }, where: { status: "Paid" } }),
+            prisma.payment.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
+        ]);
+
+        const totalRevenue = Number(revenueAgg._sum.amount || 0);
+        const recentSales = recent.map((r) => ({
+            id: String(r.id),
+            eventName: "VBS 2025: Limitless",
+            customerName: r.name,
+            amount: Number(r.amount),
+            status: r.status,
+            createdAt: r.createdAt,
+        }));
+
+        return res.json({
+            data: {
+                totalRevenue,
+                totalTickets: paidCount,
+                upcomingEvents: 1,
+                pendingPayments: pendingCount,
+                recentSales,
+            },
+        });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to load dashboard" });
+    }
+});
+
 // ------------------ HEALTH ------------------
 app.get("/api/health", async (req, res) => {
     try {
