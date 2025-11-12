@@ -364,6 +364,7 @@ app.get("/api/tickets/:ticketId", async (req, res) => {
                 ticketId: ticket.ticketId,
                 eventDate: ticket.eventDate,
                 eventTime: ticket.eventTime,
+                used: ticket.used,
                 createdAt: ticket.createdAt,
             },
         });
@@ -376,6 +377,17 @@ app.get("/api/tickets/:ticketId", async (req, res) => {
 app.get("/api/tickets/:ticketId/verify", async (req, res) => {
     try {
         const ticket = await prisma.payment.findUnique({ where: { ticketId: req.params.ticketId } });
+        // If browser (prefers HTML), redirect to the styled page
+        const acceptsHtml = /text\/html/.test(String(req.headers.accept || ""));
+        if (acceptsHtml) {
+            if (!ticket) {
+                return res.redirect(302, `/ticket/${encodeURIComponent(req.params.ticketId)}?verified=1&invalid=1`);
+            }
+            const used = Boolean(ticket.used);
+            const qs = used ? "?verified=1&used=1" : "?verified=1";
+            return res.redirect(302, `/ticket/${encodeURIComponent(ticket.ticketId)}${qs}`);
+        }
+        // Fallback JSON (for programmatic clients)
         if (!ticket) {
             return res.status(404).json({ valid: false, message: "Ticket not found" });
         }
