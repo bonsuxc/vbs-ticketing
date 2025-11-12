@@ -65,6 +65,38 @@ function requireAdmin(req, res, next) {
     next();
 }
 
+// ------------------ ADMIN VERIFY ENDPOINTS ------------------
+app.post("/api/admin/verify", requireAdmin, async (req, res) => {
+    try {
+        const { ticketId } = req.body || {};
+        if (!ticketId) return res.status(400).json({ ok: false, message: "ticketId is required" });
+        const ticket = await prisma.payment.findUnique({ where: { ticketId } });
+        if (!ticket) return res.status(404).json({ ok: false, status: "invalid", message: "Ticket not found" });
+        if (ticket.used) return res.status(409).json({ ok: false, status: "used", message: "Already used" });
+        const adminHeader = req.headers["x-admin-key"] ? String(req.headers["x-admin-key"]) : "admin";
+        const updated = await prisma.payment.update({ where: { ticketId }, data: { used: true, verifiedAt: new Date(), verifiedBy: adminHeader } });
+        return res.json({ ok: true, status: "verified", ticketId: updated.ticketId, verifiedAt: updated.verifiedAt });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ ok: false, message: "Verification failed" });
+    }
+});
+
+app.get("/api/admin/verify/logs", requireAdmin, async (req, res) => {
+    try {
+        const logs = await prisma.payment.findMany({
+            where: { used: true },
+            orderBy: { verifiedAt: "desc" },
+            select: { ticketId: true, name: true, phone: true, verifiedAt: true, verifiedBy: true },
+            take: 100,
+        });
+        return res.json({ data: logs });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to fetch logs" });
+    }
+});
+
 // ------------------ VERIFY PAYMENT ENDPOINT ------------------
 app.post("/api/verify-payment", async (req, res) => {
     const { reference, name, phone, amount } = req.body;
@@ -91,6 +123,7 @@ app.post("/api/verify-payment", async (req, res) => {
                     reference,
                     ticketType: req.body.ticketType || "Regular",
                     ticketId,
+                    eventDate: "Dec 27, 2025",
                     accessCode: generateAccessCode(),
                 },
             });
@@ -125,6 +158,7 @@ app.post("/api/verify-payment", async (req, res) => {
                     reference: reference,
                     ticketType: req.body.ticketType || "Regular",
                     ticketId,
+                    eventDate: "Dec 27, 2025",
                     accessCode: generateAccessCode(),
                 },
             });
@@ -222,6 +256,7 @@ app.post("/api/admin/manual-import", requireAdmin, upload.single("file"), async 
                         reference: "bulk_import",
                         ticketType,
                         ticketId,
+                        eventDate: "Dec 27, 2025",
                         accessCode,
                     },
                 });
@@ -260,6 +295,7 @@ app.post("/api/admin/create", requireAdmin, async (req, res) => {
                 reference: `admin_${ticketTypeValue}`,
                 ticketType: ticketTypeValue,
                 ticketId,
+                eventDate: "Dec 27, 2025",
                 accessCode: generateAccessCode(),
             },
         });

@@ -23,6 +23,15 @@ async function api(path, method = "GET", body, adminKey) {
 	} catch {
 		parsed = undefined;
 	}
+
+	async function loadLogs() {
+		try {
+			const data = await api("/api/admin/verify/logs", "GET", undefined, adminKey);
+			setLogs(data?.data || []);
+		} catch (e) {
+			console.warn("Failed to load logs:", e);
+		}
+	}
 	if (!res.ok) {
 		let message = parsed?.error || parsed?.message || text || "Request failed";
 		const error = new Error(message);
@@ -48,6 +57,12 @@ export default function Admin() {
 	const [ticketType, setTicketType] = useState("Regular");
 	const [paymentStatus, setPaymentStatus] = useState("Paid");
 
+	const [activeTab, setActiveTab] = useState("manage");
+	const [verifyCode, setVerifyCode] = useState("");
+	const [verifying, setVerifying] = useState(false);
+	const [verifyResult, setVerifyResult] = useState("");
+	const [logs, setLogs] = useState([]);
+
 	const amount = useMemo(() => {
 		if (ticketType === "VIP") return 500;
 		return 300;
@@ -57,8 +72,11 @@ export default function Admin() {
 		if (adminKey) {
 			localStorage.setItem(ADMIN_KEY_STORAGE, adminKey);
 			refresh();
+			if (activeTab === "verify") {
+				loadLogs();
+			}
 		}
-	}, [adminKey]);
+	}, [adminKey, activeTab]);
 
 	async function refresh() {
 		try {
@@ -212,6 +230,59 @@ export default function Admin() {
 							<button className="sign-out-button" type="button" onClick={handleLogout}>
 								Sign out
 							</button>
+							<div style={{ display: "flex", gap: 8, margin: "12px 0" }}>
+								<button onClick={() => setActiveTab("manage")}>Manage</button>
+								<button onClick={() => setActiveTab("verify")}>Verify Ticket</button>
+							</div>
+
+							{activeTab === "verify" ? (
+								<div className="form-wrapper" style={{ maxWidth: 520 }}>
+									<h3 style={{ marginTop: 0 }}>Verify Ticket</h3>
+									<form className="ticket-form" onSubmit={handleVerify}>
+										<input
+											type="text"
+											placeholder="Enter Ticket Code (e.g. VBS-XXXXXX)"
+											value={verifyCode}
+											onChange={(e) => setVerifyCode(e.target.value)}
+											required
+										/>
+										<button type="submit" disabled={verifying}>{verifying ? "Verifying..." : "Verify"}</button>
+										{verifyResult ? (
+											<p style={{ marginTop: 8, color: verifyResult.includes("Verified") ? "#a7f3d0" : "#fecaca" }}>
+												{verifyResult}
+											</p>
+										) : null}
+									</form>
+									<div style={{ marginTop: 16 }}>
+										<h4 style={{ marginTop: 0 }}>Recent Verifications</h4>
+										<button type="button" onClick={loadLogs} style={{ marginBottom: 8 }}>Refresh Logs</button>
+										<div style={{ overflowX: "auto" }}>
+											<table style={{ width: "100%", borderCollapse: "collapse" }}>
+												<thead>
+													<tr style={{ textAlign: "left" }}>
+														<th style={{ padding: 8 }}>Ticket Code</th>
+														<th style={{ padding: 8 }}>Name</th>
+														<th style={{ padding: 8 }}>Phone</th>
+														<th style={{ padding: 8 }}>Verified At</th>
+														<th style={{ padding: 8 }}>Verified By</th>
+													</tr>
+												</thead>
+												<tbody>
+													{logs.map((l, i) => (
+														<tr key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+															<td style={{ padding: 8, fontFamily: "monospace" }}>{l.ticketId}</td>
+															<td style={{ padding: 8 }}>{l.name}</td>
+															<td style={{ padding: 8 }}>{l.phone}</td>
+															<td style={{ padding: 8 }}>{l.verifiedAt ? new Date(l.verifiedAt).toLocaleString() : "—"}</td>
+															<td style={{ padding: 8 }}>{l.verifiedBy || "—"}</td>
+														</tr>
+													))}
+												</tbody>
+											</table>
+										</div>
+									</div>
+								</div>
+							) : null}
 							<div className="form-wrapper" style={{ maxWidth: 520 }}>
 								<h3 style={{ marginTop: 0 }}>Bulk Manual Tickets</h3>
 								<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

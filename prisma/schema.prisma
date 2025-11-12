@@ -16,9 +16,12 @@ model Payment {
   reference  String?
   ticketType String   @default("Regular")
   ticketId   String   @unique
-  eventDate  String   @default("Dec 15, 2025")
+  eventDate  String   @default("Dec 27, 2025")
   eventTime  String   @default("09:00 AM")
   accessCode String?  @unique
+  used       Boolean  @default(false)
+  verifiedAt DateTime?
+  verifiedBy String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }

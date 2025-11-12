@@ -102,7 +102,7 @@ export default function ViewTicket() {
                   <Info label="Ticket Type" value={ticket.ticketType} />
                   <Info label="Ticket Code" value={ticket.ticketId} />
                   <Info label="Amount" value={ticket.amount ? `₵${Number(ticket.amount).toFixed(2)}` : "—"} />
-                  <Info label="Event Date" value={`${ticket.eventDate || "Dec 15, 2025"} · ${ticket.eventTime || "09:00 AM"}`} />
+                  <Info label="Event Date" value={`${ticket.eventDate || "Dec 27, 2025"} · ${ticket.eventTime || "09:00 AM"}`} />
                   <Info label="Issued On" value={ticket.createdAt ? new Date(ticket.createdAt).toLocaleString() : "—"} />
                   <Info label="Status" value={ticket.status} />
                 </div>
