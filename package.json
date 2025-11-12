@@ -2,6 +2,7 @@
   "name": "vbs-ticketing",
   "version": "1.0.0",
   "description": "VBS Ticketing System powered by OxTech — handles payments, OTP verification, and QR code ticket generation for users.",
+  "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
