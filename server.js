@@ -45,7 +45,11 @@ async function generateTicketId() {
         const candidate = `VBS-${random}`;
         // eslint-disable-next-line no-await-in-loop
         const exists = await prisma.payment.findUnique({ where: { ticketId: candidate } });
-
+        if (!exists) {
+            return candidate;
+        }
+    }
+}
 // ------------------ ADMIN VERIFY ENDPOINTS ------------------
 app.post("/api/admin/verify", requireAdmin, async (req, res) => {
     try {
@@ -77,11 +81,6 @@ app.get("/api/admin/verify/logs", requireAdmin, async (req, res) => {
         return res.status(500).json({ error: "Failed to fetch logs" });
     }
 });
-        if (!exists) {
-            return candidate;
-        }
-    }
-}
 
 // ------------------ HUBTEL CONFIG ------------------
 const HUBTEL_BASE_URL = "https://api.hubtel.com/v1/merchantaccount/merchants";
@@ -99,16 +98,26 @@ function requireAdmin(req, res, next) {
 
 // ------------------ VERIFY PAYMENT ENDPOINT ------------------
 app.post("/api/verify-payment", async (req, res) => {
-    const { reference, name, phone, amount } = req.body;
+    const { reference, name, phone, amount, ticketType } = req.body;
 
     if (!reference) return res.status(400).json({ error: "Payment reference is required" });
 
     try {
         // Manual path for non-Hubtel or testing
         if (reference === "manual_payment") {
-            if (!name || !phone || typeof amount !== "number") {
-                return res.status(400).json({ error: "name, phone and amount are required for manual_payment" });
+            if (!name || !phone) {
+                return res.status(400).json({ error: "name and phone are required for manual_payment" });
             }
+            const ticketTypeValue = ticketType || "Regular";
+            let amt = amount;
+            if (amt === undefined || amt === null || amt === "") {
+                amt = ticketTypeValue === "VIP" ? 500 : 300;
+            }
+            amt = Number(amt);
+            if (!Number.isFinite(amt)) {
+                return res.status(400).json({ error: "amount must be a valid number" });
+            }
+            amt = Math.round(amt);
             const existing = await prisma.payment.findFirst({ where: { phone } });
             if (existing) {
                 return res.status(400).json({ message: "This number already has a ticket." });
@@ -118,10 +127,10 @@ app.post("/api/verify-payment", async (req, res) => {
                 data: {
                     name,
                     phone,
-                    amount,
+                    amount: amt,
                     status: "Paid",
                     reference,
-                    ticketType: req.body.ticketType || "Regular",
+                    ticketType: ticketTypeValue,
                     ticketId,
                     accessCode: generateAccessCode(),
                 },
@@ -274,20 +283,29 @@ app.post("/api/admin/manual-import", requireAdmin, upload.single("file"), async 
 app.post("/api/admin/create", requireAdmin, async (req, res) => {
     try {
         const { name, phone, amount, status, ticketType } = req.body;
-        if (!name || !phone || typeof amount !== "number") {
-            return res.status(400).json({ error: "name, phone, amount are required" });
+        if (!name || !phone) {
+            return res.status(400).json({ error: "name and phone are required" });
         }
         const exists = await prisma.payment.findFirst({ where: { phone } });
         if (exists) {
             return res.status(409).json({ error: "This number already has a ticket." });
         }
         const ticketTypeValue = ticketType || "Regular";
+        let amt = amount;
+        if (amt === undefined || amt === null || amt === "") {
+            amt = ticketTypeValue === "VIP" ? 500 : 300;
+        }
+        amt = Number(amt);
+        if (!Number.isFinite(amt)) {
+            return res.status(400).json({ error: "amount must be a valid number" });
+        }
+        amt = Math.round(amt);
         const ticketId = await generateTicketId();
         const created = await prisma.payment.create({
             data: {
                 name,
                 phone,
-                amount,
+                amount: amt,
                 status: status || "Paid",
                 reference: `admin_${ticketTypeValue}`,
                 ticketType: ticketTypeValue,
@@ -564,42 +582,6 @@ app.get("/ticket-pdf/:id", async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).send("Server error");
-    }
-});
-
-// ------------------ DASHBOARD SUMMARY ------------------
-app.get("/api/dashboard", requireAdmin, async (req, res) => {
-    try {
-        // Totals
-        const [paidCount, pendingCount, revenueAgg, recent] = await Promise.all([
-            prisma.payment.count({ where: { status: "Paid" } }),
-            prisma.payment.count({ where: { NOT: { status: "Paid" } } }),
-            prisma.payment.aggregate({ _sum: { amount: true }, where: { status: "Paid" } }),
-            prisma.payment.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
-        ]);
-
-        const totalRevenue = Number(revenueAgg._sum.amount || 0);
-        const recentSales = recent.map((r) => ({
-            id: String(r.id),
-            eventName: "VBS 2025: Limitless",
-            customerName: r.name,
-            amount: Number(r.amount),
-            status: r.status,
-            createdAt: r.createdAt,
-        }));
-
-        return res.json({
-            data: {
-                totalRevenue,
-                totalTickets: paidCount,
-                upcomingEvents: 1,
-                pendingPayments: pendingCount,
-                recentSales,
-            },
-        });
-    } catch (e) {
-        console.error(e);
-        return res.status(500).json({ error: "Failed to load dashboard" });
     }
 });
 
