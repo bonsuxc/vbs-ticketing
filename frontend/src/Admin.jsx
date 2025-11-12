@@ -143,43 +143,70 @@ export default function Admin() {
 		setScanError("");
 		setScanOpen(true);
 		try {
-			if (!("BarcodeDetector" in window)) {
-				setScanError("QR scanning not supported on this browser. Please use Chrome/Edge or enter code manually.");
-				return;
-			}
-			const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
-			setStreamRef(stream);
-			const video = document.getElementById(videoId);
-			if (video) {
-				video.srcObject = stream;
-				video.play().catch(() => {});
-			}
-			const detector = new window.BarcodeDetector({ formats: ["qr_code", "qr"] });
-			let cancelled = false;
-			async function loop() {
-				if (cancelled) return;
-				try {
-					const v = document.getElementById(videoId);
-					if (v && v.readyState >= 2) {
-						const codes = await detector.detect(v);
-						if (codes && codes.length) {
-							const raw = codes[0].rawValue || codes[0].raw || "";
-							const tid = extractTicketIdFromText(raw);
-							if (tid) {
-								setVerifyCode(tid);
-								await handleVerify();
-								cancelled = true;
-								stopScan();
-								return;
+			const constraints = { video: { facingMode: { ideal: "environment" } } };
+			// Try native BarcodeDetector first
+			if ("BarcodeDetector" in window) {
+				const stream = await navigator.mediaDevices.getUserMedia(constraints);
+				setStreamRef(stream);
+				const video = document.getElementById(videoId);
+				if (video) {
+					video.srcObject = stream;
+					video.play().catch(() => {});
+				}
+				const detector = new window.BarcodeDetector({ formats: ["qr_code", "qr", "code_128", "pdf417"] });
+				let cancelled = false;
+				async function loop() {
+					if (cancelled) return;
+					try {
+						const v = document.getElementById(videoId);
+						if (v && v.readyState >= 2) {
+							const codes = await detector.detect(v);
+							if (codes && codes.length) {
+								const raw = codes[0].rawValue || codes[0].raw || "";
+								const tid = extractTicketIdFromText(raw);
+								if (tid) {
+									setVerifyCode(tid);
+									await handleVerify();
+									cancelled = true;
+									stopScan();
+									return;
+								}
 							}
 						}
+					} catch (e) {
+						setScanError(e?.message || "Scan error");
 					}
-				} catch (e) {
-					setScanError(e?.message || "Scan error");
+					if (!cancelled) requestAnimationFrame(loop);
 				}
-				if (!cancelled) requestAnimationFrame(loop);
+				requestAnimationFrame(loop);
+				return;
 			}
-			requestAnimationFrame(loop);
+
+			// Fallback to ZXing for Safari/iOS and other browsers
+			try {
+				const { BrowserMultiFormatReader } = await import("@zxing/browser");
+				const codeReader = new BrowserMultiFormatReader();
+				const video = document.getElementById(videoId);
+				if (!video) throw new Error("Video element not found");
+				await codeReader.decodeFromVideoDevice(undefined, video, (result, err, controls) => {
+					if (result?.getText) {
+						const raw = result.getText();
+						const tid = extractTicketIdFromText(raw);
+						if (tid) {
+							setVerifyCode(tid);
+							controls.stop();
+							stopScan();
+							// Fire verify after close so UI updates cleanly
+							setTimeout(() => handleVerify(), 0);
+						}
+					}
+					if (err && String(err).includes("NotFoundException")) {
+						// keep scanning silently
+					}
+				});
+			} catch (e) {
+				setScanError("QR scanning not supported on this device/browser. Please enter the code manually.");
+			}
 		} catch (e) {
 			setScanError(e?.message || "Unable to start camera");
 		}
