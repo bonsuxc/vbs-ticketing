@@ -553,6 +553,16 @@ app.get("/ticket-pdf/:id", async (req, res) => {
     }
 });
 
+// ------------------ HEALTH ------------------
+app.get("/api/health", async (req, res) => {
+    try {
+        const mongo = mongoose.connection.readyState;
+        return res.json({ ok: true, mongo });
+    } catch (e) {
+        return res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // ------------------ SERVE FRONTEND ------------------
 const __filename2 = fileURLToPath(import.meta.url);
 const __dirname2 = path.dirname(__filename2);
