@@ -1,5 +1,4 @@
 import express from "express";
-import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 import axios from "axios";
@@ -12,6 +11,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
+import { PrismaClient } from "@prisma/client";
 
 dotenv.config();
 
@@ -20,11 +20,12 @@ app.use(cors());
 app.use(express.json());
 const upload = multer();
 
-// ------------------ MONGODB CONNECTION ------------------
-const MONGO_URI = process.env.MONGO_URI;
-if (!MONGO_URI) {
-	console.error("❌ MONGO_URI is not set. Please configure environment variables.");
-	process.exit(1);
+// ------------------ DATABASE (PostgreSQL via Prisma) ------------------
+const prisma = new PrismaClient();
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+    console.error("❌ DATABASE_URL is not set. Please configure environment variables.");
+    process.exit(1);
 }
 
 function generateAccessCode() {
@@ -37,45 +38,18 @@ function generateAccessCode() {
 }
 const ADMIN_KEY = process.env.ADMIN_KEY || "VBSAdmin#8372";
 
-mongoose
-    .connect(MONGO_URI, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-    })
-    .then(() => console.log("✅ MongoDB connected"))
-    .catch((err) => console.error("❌ MongoDB connection error:", err));
-
-// ------------------ PAYMENT MODEL ------------------
-const paymentSchema = new mongoose.Schema(
-	{
-		name: { type: String, required: true },
-		phone: { type: String, required: true },
-		amount: { type: Number, required: true },
-		status: { type: String, default: "Paid" },
-		reference: { type: String },
-		ticketType: { type: String, default: "Regular" },
-		ticketId: { type: String, unique: true, required: true },
-		eventDate: { type: String, default: "Dec 15, 2025" },
-		eventTime: { type: String, default: "09:00 AM" },
-		accessCode: { type: String, uppercase: true }, // for manual tickets only
-		createdAt: { type: Date, default: Date.now },
-	},
-	{ timestamps: true }
-);
-
+// ------------------ HELPERS ------------------
 async function generateTicketId() {
-	while (true) {
-		const random = crypto.randomBytes(3).toString("hex").toUpperCase();
-		const candidate = `VBS-${random}`;
-		// eslint-disable-next-line no-await-in-loop
-		const exists = await Payment.findOne({ ticketId: candidate });
-		if (!exists) {
-			return candidate;
-		}
-	}
+    while (true) {
+        const random = crypto.randomBytes(3).toString("hex").toUpperCase();
+        const candidate = `VBS-${random}`;
+        // eslint-disable-next-line no-await-in-loop
+        const exists = await prisma.payment.findUnique({ where: { ticketId: candidate } });
+        if (!exists) {
+            return candidate;
+        }
+    }
 }
-
-const Payment = mongoose.model("Payment", paymentSchema);
 
 // ------------------ HUBTEL CONFIG ------------------
 const HUBTEL_BASE_URL = "https://api.hubtel.com/v1/merchantaccount/merchants";
@@ -84,43 +58,44 @@ const HUBTEL_API_KEY = process.env.HUBTEL_API_KEY || "";
 
 // ------------------ SIMPLE ADMIN AUTH MIDDLEWARE ------------------
 function requireAdmin(req, res, next) {
-	const key = req.headers["x-admin-key"];
-	if (!ADMIN_KEY || key !== ADMIN_KEY) {
-		return res.status(401).json({ error: "Unauthorized" });
-	}
-	next();
+    const key = req.headers["x-admin-key"];
+    if (!ADMIN_KEY || key !== ADMIN_KEY) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+    next();
 }
 
 // ------------------ VERIFY PAYMENT ENDPOINT ------------------
 app.post("/api/verify-payment", async (req, res) => {
-	const { reference, name, phone, amount } = req.body;
+    const { reference, name, phone, amount } = req.body;
 
-	if (!reference) return res.status(400).json({ error: "Payment reference is required" });
+    if (!reference) return res.status(400).json({ error: "Payment reference is required" });
 
     try {
-		// Manual path for non-Hubtel or testing
-		if (reference === "manual_payment") {
-			if (!name || !phone || typeof amount !== "number") {
-				return res.status(400).json({ error: "name, phone and amount are required for manual_payment" });
-			}
-			const existing = await Payment.findOne({ phone });
-			if (existing) {
-				return res.status(400).json({ message: "This number already has a ticket." });
-			}
-			const ticketId = await generateTicketId();
-			const newPayment = new Payment({
-				name,
-				phone,
-				amount,
-				status: "Paid",
-				reference,
-				ticketType: req.body.ticketType || "Regular",
-				ticketId,
-				accessCode: generateAccessCode(),
-			});
-			await newPayment.save();
-			return res.json({ success: true, message: "Ticket issued successfully", data: newPayment });
-		}
+        // Manual path for non-Hubtel or testing
+        if (reference === "manual_payment") {
+            if (!name || !phone || typeof amount !== "number") {
+                return res.status(400).json({ error: "name, phone and amount are required for manual_payment" });
+            }
+            const existing = await prisma.payment.findFirst({ where: { phone } });
+            if (existing) {
+                return res.status(400).json({ message: "This number already has a ticket." });
+            }
+            const ticketId = await generateTicketId();
+            const created = await prisma.payment.create({
+                data: {
+                    name,
+                    phone,
+                    amount,
+                    status: "Paid",
+                    reference,
+                    ticketType: req.body.ticketType || "Regular",
+                    ticketId,
+                    accessCode: generateAccessCode(),
+                },
+            });
+            return res.json({ success: true, message: "Ticket issued successfully", data: { ...created, _id: String(created.id) } });
+        }
 
         const response = await axios.get(
             `https://api.hubtel.com/v1/merchantaccount/onlinecheckout/${reference}`,
@@ -134,26 +109,26 @@ app.post("/api/verify-payment", async (req, res) => {
 
         const paymentData = response.data;
         if (paymentData.status === "Success" && paymentData.amount >= 300) {
-            const existingPayment = await Payment.findOne({ phone: paymentData.customer.phoneNumber });
+            const existingPayment = await prisma.payment.findFirst({ where: { phone: paymentData.customer.phoneNumber } });
 
             if (existingPayment) {
                 return res.status(400).json({ message: "This number already has a ticket." });
             }
 
-			const ticketId = await generateTicketId();
-            const newPayment = new Payment({
-                name: paymentData.customer.name,
-                phone: paymentData.customer.phoneNumber,
-                amount: paymentData.amount,
-                status: "Paid",
-                reference: reference,
-				ticketType: req.body.ticketType || "Regular",
-				ticketId,
-                accessCode: generateAccessCode(),
+            const ticketId = await generateTicketId();
+            const created = await prisma.payment.create({
+                data: {
+                    name: paymentData.customer.name,
+                    phone: paymentData.customer.phoneNumber,
+                    amount: paymentData.amount,
+                    status: "Paid",
+                    reference: reference,
+                    ticketType: req.body.ticketType || "Regular",
+                    ticketId,
+                    accessCode: generateAccessCode(),
+                },
             });
-
-            await newPayment.save();
-            return res.json({ success: true, message: "Ticket issued successfully", data: newPayment });
+            return res.json({ success: true, message: "Ticket issued successfully", data: { ...created, _id: String(created.id) } });
         } else {
             return res.status(400).json({ success: false, message: "Payment not valid or below required amount" });
         }
@@ -231,24 +206,25 @@ app.post("/api/admin/manual-import", requireAdmin, upload.single("file"), async 
                 const accessCode = providedCode.toUpperCase();
                 if (accessCode.length !== 5) throw new Error("Secure Code must be 5 characters");
 
-                const existingByPhone = await Payment.findOne({ phone });
+                const existingByPhone = await prisma.payment.findFirst({ where: { phone } });
                 if (existingByPhone) throw new Error("Phone already has a ticket");
-                const existingByCode = await Payment.findOne({ accessCode });
+                const existingByCode = await prisma.payment.findFirst({ where: { accessCode } });
                 if (existingByCode) throw new Error("Secure Code already used");
 
                 const ticketId = await generateTicketId();
                 const amount = ticketType === "VIP" ? 500 : 300;
-                const doc = new Payment({
-                    name,
-                    phone,
-                    amount,
-                    status: status || "Paid",
-                    reference: "bulk_import",
-                    ticketType,
-                    ticketId,
-                    accessCode,
+                const doc = await prisma.payment.create({
+                    data: {
+                        name,
+                        phone,
+                        amount,
+                        status: status || "Paid",
+                        reference: "bulk_import",
+                        ticketType,
+                        ticketId,
+                        accessCode,
+                    },
                 });
-                await doc.save();
                 results.push({ row: i, success: true, ticketId: doc.ticketId });
             } catch (err) {
                 results.push({ row: i, success: false, error: err.message });
@@ -261,143 +237,141 @@ app.post("/api/admin/manual-import", requireAdmin, upload.single("file"), async 
         return res.status(500).json({ error: "Failed to import" });
     }
 });
+
 // Create manual payment/ticket
 app.post("/api/admin/create", requireAdmin, async (req, res) => {
-	try {
-		const { name, phone, amount, status, ticketType } = req.body;
-		if (!name || !phone || typeof amount !== "number") {
-			return res.status(400).json({ error: "name, phone, amount are required" });
-		}
-		const exists = await Payment.findOne({ phone });
-		if (exists) {
-			return res.status(409).json({ error: "This number already has a ticket." });
-		}
-		const ticketTypeValue = ticketType || "Regular";
-		const ticketId = await generateTicketId();
-		const newPayment = new Payment({
-			name,
-			phone,
-			amount,
-			status: status || "Paid",
-			reference: `admin_${ticketTypeValue}`,
-			ticketType: ticketTypeValue,
-			ticketId,
-			accessCode: generateAccessCode(),
-		});
-		await newPayment.save();
-		return res.json({ success: true, message: "Ticket created successfully!", data: newPayment });
-	} catch (e) {
-		console.error(e);
-		return res.status(500).json({ error: "Failed to create ticket" });
-	}
+    try {
+        const { name, phone, amount, status, ticketType } = req.body;
+        if (!name || !phone || typeof amount !== "number") {
+            return res.status(400).json({ error: "name, phone, amount are required" });
+        }
+        const exists = await prisma.payment.findFirst({ where: { phone } });
+        if (exists) {
+            return res.status(409).json({ error: "This number already has a ticket." });
+        }
+        const ticketTypeValue = ticketType || "Regular";
+        const ticketId = await generateTicketId();
+        const created = await prisma.payment.create({
+            data: {
+                name,
+                phone,
+                amount,
+                status: status || "Paid",
+                reference: `admin_${ticketTypeValue}`,
+                ticketType: ticketTypeValue,
+                ticketId,
+                accessCode: generateAccessCode(),
+            },
+        });
+        return res.json({ success: true, message: "Ticket created successfully!", data: { ...created, _id: String(created.id) } });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to create ticket" });
+    }
 });
 
 // List all
 app.get("/api/admin/payments", requireAdmin, async (req, res) => {
-	try {
-		const payments = await Payment.find().sort({ createdAt: -1 });
-		res.json({ count: payments.length, data: payments });
-	} catch (error) {
-		res.status(500).json({ error: "Failed to fetch payments" });
-	}
+    try {
+        const payments = await prisma.payment.findMany({ orderBy: { createdAt: "desc" } });
+        const mapped = payments.map((p) => ({ ...p, _id: String(p.id) }));
+        res.json({ count: mapped.length, data: mapped });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch payments" });
+    }
 });
 
 // Update
 app.put("/api/admin/payments/:id", requireAdmin, async (req, res) => {
-	try {
-		const { id } = req.params;
-		const update = req.body || {};
-		const doc = await Payment.findByIdAndUpdate(id, update, { new: true });
-		if (!doc) return res.status(404).json({ error: "Not found" });
-		return res.json({ success: true, data: doc });
-	} catch (e) {
-		console.error(e);
-		return res.status(500).json({ error: "Failed to update" });
-	}
+    try {
+        const { id } = req.params;
+        const update = req.body || {};
+        const intId = Number(id);
+        const doc = await prisma.payment.update({ where: { id: intId }, data: update });
+        if (!doc) return res.status(404).json({ error: "Not found" });
+        return res.json({ success: true, data: { ...doc, _id: String(doc.id) } });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to update" });
+    }
 });
 
 // Delete
 app.delete("/api/admin/payments/:id", requireAdmin, async (req, res) => {
-	try {
-		const { id } = req.params;
-		const doc = await Payment.findByIdAndDelete(id);
-		if (!doc) return res.status(404).json({ error: "Not found" });
-		return res.json({ success: true });
-	} catch (e) {
-		console.error(e);
-		return res.status(500).json({ error: "Failed to delete" });
-	}
+    try {
+        const { id } = req.params;
+        const intId = Number(id);
+        await prisma.payment.delete({ where: { id: intId } });
+        return res.json({ success: true });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to delete" });
+    }
 });
 
 // ------------------ PUBLIC TICKET ENDPOINTS ------------------
 app.get("/api/tickets/:ticketId", async (req, res) => {
-	try {
-		const ticket = await Payment.findOne({ ticketId: req.params.ticketId });
-		if (!ticket) {
-			return res.status(404).json({ error: "Ticket not found" });
-		}
-		return res.json({
-			data: {
-				id: ticket._id,
-				name: ticket.name,
-				phone: ticket.phone,
-				amount: ticket.amount,
-				status: ticket.status,
-				reference: ticket.reference,
-				ticketType: ticket.ticketType,
-				ticketId: ticket.ticketId,
-				eventDate: ticket.eventDate,
-				eventTime: ticket.eventTime,
-				createdAt: ticket.createdAt,
-			},
-		});
-	} catch (e) {
-		console.error(e);
-		return res.status(500).json({ error: "Failed to fetch ticket" });
-	}
+    try {
+        const ticket = await prisma.payment.findUnique({ where: { ticketId: req.params.ticketId } });
+        if (!ticket) {
+            return res.status(404).json({ error: "Ticket not found" });
+        }
+        return res.json({
+            data: {
+                id: ticket.id,
+                name: ticket.name,
+                phone: ticket.phone,
+                amount: ticket.amount,
+                status: ticket.status,
+                reference: ticket.reference,
+                ticketType: ticket.ticketType,
+                ticketId: ticket.ticketId,
+                eventDate: ticket.eventDate,
+                eventTime: ticket.eventTime,
+                createdAt: ticket.createdAt,
+            },
+        });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to fetch ticket" });
+    }
 });
 
 app.get("/api/tickets/:ticketId/verify", async (req, res) => {
-	try {
-		const ticket = await Payment.findOne({ ticketId: req.params.ticketId });
-		if (!ticket) {
-			return res.status(404).json({ valid: false, message: "Ticket not found" });
-		}
-		return res.json({
-			valid: true,
-			ticketId: ticket.ticketId,
-			name: ticket.name,
-			phone: ticket.phone,
-			status: ticket.status,
-			ticketType: ticket.ticketType,
-			eventDate: ticket.eventDate,
-			eventTime: ticket.eventTime,
-		});
-	} catch (e) {
-		console.error(e);
-		return res.status(500).json({ valid: false, message: "Failed to verify ticket" });
-	}
+    try {
+        const ticket = await prisma.payment.findUnique({ where: { ticketId: req.params.ticketId } });
+        if (!ticket) {
+            return res.status(404).json({ valid: false, message: "Ticket not found" });
+        }
+        return res.json({
+            valid: true,
+            ticketId: ticket.ticketId,
+            name: ticket.name,
+            phone: ticket.phone,
+            status: ticket.status,
+            ticketType: ticket.ticketType,
+            eventDate: ticket.eventDate,
+            eventTime: ticket.eventTime,
+        });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ valid: false, message: "Failed to verify ticket" });
+    }
 });
-
-// (duplicate lookup route removed)
-
-// ------------------ ADMIN ENDPOINT ------------------
-// Note: moved to protected route above
 
 // Manual lookup by phone number + access code (no amount threshold)
 app.post("/api/tickets/lookup", async (req, res) => {
     try {
         const { phone, accessCode } = req.body || {};
         if (!phone || !accessCode) return res.status(400).json({ error: "Phone and access code are required" });
-
-        const ticket = await Payment.findOne({ phone, accessCode: String(accessCode).toUpperCase() });
+        const ticket = await prisma.payment.findFirst({ where: { phone, accessCode: String(accessCode).toUpperCase() } });
         if (!ticket) {
             return res.status(404).json({ error: "Invalid phone number or access code" });
         }
 
         return res.json({
             data: {
-                id: ticket._id,
+                id: ticket.id,
                 name: ticket.name,
                 phone: ticket.phone,
                 amount: ticket.amount,
@@ -419,8 +393,16 @@ app.post("/api/tickets/lookup", async (req, res) => {
 // ------------------ TICKET PDF ENDPOINT ------------------
 app.get("/ticket-pdf/:id", async (req, res) => {
     try {
-        const ticketId = req.params.id;
-        const ticket = await Payment.findById(ticketId);
+        const idParam = req.params.id;
+        let ticket = null;
+        const numericId = Number(idParam);
+        if (!Number.isNaN(numericId)) {
+            ticket = await prisma.payment.findUnique({ where: { id: numericId } });
+        }
+        if (!ticket) {
+            // fallback by ticketId
+            ticket = await prisma.payment.findUnique({ where: { ticketId: idParam } });
+        }
 
         if (!ticket) return res.status(404).send("Ticket not found");
 
@@ -556,8 +538,9 @@ app.get("/ticket-pdf/:id", async (req, res) => {
 // ------------------ HEALTH ------------------
 app.get("/api/health", async (req, res) => {
     try {
-        const mongo = mongoose.connection.readyState;
-        return res.json({ ok: true, mongo });
+        // Simple connectivity check
+        await prisma.$queryRaw`SELECT 1`;
+        return res.json({ ok: true });
     } catch (e) {
         return res.status(500).json({ ok: false, error: e.message });
     }

@@ -1,0 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Payment {
+  id         Int      @id @default(autoincrement())
+  name       String
+  phone      String
+  amount     Int
+  status     String   @default("Paid")
+  reference  String?
+  ticketType String   @default("Regular")
+  ticketId   String   @unique
+  eventDate  String   @default("Dec 15, 2025")
+  eventTime  String   @default("09:00 AM")
+  accessCode String?  @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
