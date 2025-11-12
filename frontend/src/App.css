@@ -7,6 +7,10 @@
   background: #ffffff;
 }
 
+html, body {
+  overflow-x: hidden;
+}
+
 .hero {
   position: relative;
   min-height: calc(100vh - 60px);
@@ -428,6 +432,8 @@
 }
 
 @media (max-width: 640px) {
+  .app { background: #0b1220; }
+  body { background: #0b1220; }
   .ticket-preview-overlay {
     background: linear-gradient(180deg, rgba(15,23,42,0.72) 0%, rgba(15,23,42,0.94) 100%);
     padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
@@ -456,6 +462,9 @@
 
   .ticket-grid { grid-template-columns: 1fr; }
   .ticket-qr-box { width: min(200px, 65vw); }
+  .hero { width: 100%; min-height: 100svh; }
+  .hero-content { padding: 16px; max-width: 100%; }
+  .form-wrapper { width: 100%; margin: 0; }
 }
 
 @keyframes fadeInUp {

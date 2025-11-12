@@ -23,15 +23,6 @@ async function api(path, method = "GET", body, adminKey) {
 	} catch {
 		parsed = undefined;
 	}
-
-	async function loadLogs() {
-		try {
-			const data = await api("/api/admin/verify/logs", "GET", undefined, adminKey);
-			setLogs(data?.data || []);
-		} catch (e) {
-			console.warn("Failed to load logs:", e);
-		}
-	}
 	if (!res.ok) {
 		let message = parsed?.error || parsed?.message || text || "Request failed";
 		const error = new Error(message);
@@ -62,6 +53,12 @@ export default function Admin() {
 	const [verifying, setVerifying] = useState(false);
 	const [verifyResult, setVerifyResult] = useState("");
 	const [logs, setLogs] = useState([]);
+
+	// QR scanning state
+	const [scanOpen, setScanOpen] = useState(false);
+	const [scanError, setScanError] = useState("");
+	const [streamRef, setStreamRef] = useState(null);
+	const videoId = "qr_video_el";
 
 	const amount = useMemo(() => {
 		if (ticketType === "VIP") return 500;
@@ -96,6 +93,108 @@ export default function Admin() {
 		} finally {
 			setLoading(false);
 		}
+	}
+
+	async function loadLogs() {
+		try {
+			const data = await api("/api/admin/verify/logs", "GET", undefined, adminKey);
+			setLogs(data?.data || []);
+		} catch (e) {
+			console.warn("Failed to load logs:", e);
+		}
+	}
+
+	async function handleVerify(e) {
+		e?.preventDefault?.();
+		if (!verifyCode) return;
+		setVerifying(true);
+		setVerifyResult("");
+		try {
+			const res = await api("/api/admin/verify", "POST", { ticketId: verifyCode }, adminKey);
+			setVerifyResult(res?.status === "verified" ? "Verified — Access Granted" : "Verification completed");
+			await loadLogs();
+			await refresh();
+		} catch (e) {
+			if (e.status === 401) {
+				localStorage.removeItem(ADMIN_KEY_STORAGE);
+				setAdminKey("");
+				setError("Session expired. Please sign in again.");
+			} else {
+				setVerifyResult(e.message || "Invalid or Already Used");
+			}
+		} finally {
+			setVerifying(false);
+		}
+	}
+
+	function extractTicketIdFromText(text) {
+		if (!text) return "";
+		try {
+			const url = new URL(text);
+			const parts = url.pathname.split("/").filter(Boolean);
+			const idx = parts.findIndex((p) => p.toLowerCase() === "tickets" || p.toLowerCase() === "ticket");
+			if (idx >= 0 && parts[idx + 1]) return decodeURIComponent(parts[idx + 1]);
+		} catch {}
+		const m = String(text).match(/VBS-[A-Z0-9]{6,}/i);
+		return m ? m[0].toUpperCase() : "";
+	}
+
+	async function startScan() {
+		setScanError("");
+		setScanOpen(true);
+		try {
+			if (!("BarcodeDetector" in window)) {
+				setScanError("QR scanning not supported on this browser. Please use Chrome/Edge or enter code manually.");
+				return;
+			}
+			const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+			setStreamRef(stream);
+			const video = document.getElementById(videoId);
+			if (video) {
+				video.srcObject = stream;
+				video.play().catch(() => {});
+			}
+			const detector = new window.BarcodeDetector({ formats: ["qr_code", "qr"] });
+			let cancelled = false;
+			async function loop() {
+				if (cancelled) return;
+				try {
+					const v = document.getElementById(videoId);
+					if (v && v.readyState >= 2) {
+						const codes = await detector.detect(v);
+						if (codes && codes.length) {
+							const raw = codes[0].rawValue || codes[0].raw || "";
+							const tid = extractTicketIdFromText(raw);
+							if (tid) {
+								setVerifyCode(tid);
+								await handleVerify();
+								cancelled = true;
+								stopScan();
+								return;
+							}
+						}
+					}
+				} catch (e) {
+					setScanError(e?.message || "Scan error");
+				}
+				if (!cancelled) requestAnimationFrame(loop);
+			}
+			requestAnimationFrame(loop);
+		} catch (e) {
+			setScanError(e?.message || "Unable to start camera");
+		}
+	}
+
+	function stopScan() {
+		try {
+			const video = document.getElementById(videoId);
+			if (video) video.srcObject = null;
+			if (streamRef) {
+				streamRef.getTracks().forEach((t) => t.stop());
+				setStreamRef(null);
+			}
+		} catch {}
+		setScanOpen(false);
 	}
 
 	async function handleLogin(e) {
@@ -247,12 +346,27 @@ export default function Admin() {
 											required
 										/>
 										<button type="submit" disabled={verifying}>{verifying ? "Verifying..." : "Verify"}</button>
+										<button type="button" onClick={startScan} disabled={verifying}>Scan QR</button>
 										{verifyResult ? (
 											<p style={{ marginTop: 8, color: verifyResult.includes("Verified") ? "#a7f3d0" : "#fecaca" }}>
 												{verifyResult}
 											</p>
 										) : null}
 									</form>
+									{scanOpen ? (
+										<div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+											<div style={{ background: "#0b1220", border: "1px solid rgba(148,163,184,0.3)", borderRadius: 12, padding: 12, width: "min(520px, 96vw)" }}>
+												<h4 style={{ margin: 0, color: "#e2e8f0" }}>Scan QR</h4>
+												<div style={{ marginTop: 8, display: "flex", justifyContent: "center" }}>
+													<video id={videoId} playsInline muted style={{ width: "100%", borderRadius: 8, background: "#111827" }} />
+												</div>
+												{scanError ? <p style={{ color: "#fecaca", marginTop: 8 }}>{scanError}</p> : null}
+												<div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+													<button type="button" onClick={stopScan}>Close</button>
+												</div>
+											</div>
+										</div>
+									) : null}
 									<div style={{ marginTop: 16 }}>
 										<h4 style={{ marginTop: 0 }}>Recent Verifications</h4>
 										<button type="button" onClick={loadLogs} style={{ marginBottom: 8 }}>Refresh Logs</button>
