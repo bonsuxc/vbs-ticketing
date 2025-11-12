@@ -12,7 +12,7 @@ const getTicketById = async (id) => {
         name: "John Doe",
         email: "john@example.com",
         event: "VBS 2025",
-        date: "Dec 15, 2025",
+        date: "December 27, 2025",
         seat: "A12"
     };
 };

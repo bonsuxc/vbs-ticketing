@@ -45,6 +45,38 @@ async function generateTicketId() {
         const candidate = `VBS-${random}`;
         // eslint-disable-next-line no-await-in-loop
         const exists = await prisma.payment.findUnique({ where: { ticketId: candidate } });
+
+// ------------------ ADMIN VERIFY ENDPOINTS ------------------
+app.post("/api/admin/verify", requireAdmin, async (req, res) => {
+    try {
+        const { ticketId } = req.body || {};
+        if (!ticketId) return res.status(400).json({ ok: false, message: "ticketId is required" });
+        const ticket = await prisma.payment.findUnique({ where: { ticketId } });
+        if (!ticket) return res.status(404).json({ ok: false, status: "invalid", message: "Ticket not found" });
+        if (ticket.used) return res.status(409).json({ ok: false, status: "used", message: "Already used" });
+        const adminHeader = req.headers["x-admin-key"] ? String(req.headers["x-admin-key"]) : "admin";
+        const updated = await prisma.payment.update({ where: { ticketId }, data: { used: true, verifiedAt: new Date(), verifiedBy: adminHeader } });
+        return res.json({ ok: true, status: "verified", ticketId: updated.ticketId, verifiedAt: updated.verifiedAt });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ ok: false, message: "Verification failed" });
+    }
+});
+
+app.get("/api/admin/verify/logs", requireAdmin, async (req, res) => {
+    try {
+        const logs = await prisma.payment.findMany({
+            where: { used: true },
+            orderBy: { verifiedAt: "desc" },
+            select: { ticketId: true, name: true, phone: true, verifiedAt: true, verifiedBy: true },
+            take: 100,
+        });
+        return res.json({ data: logs });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to fetch logs" });
+    }
+});
         if (!exists) {
             return candidate;
         }
@@ -467,7 +499,7 @@ app.get("/ticket-pdf/:id", async (req, res) => {
 
         // Header on left panel
         const eventTitle = "VBS 2025: Limitless";
-        const eventDate = "27th December 2025";
+        const eventDate = "December 27, 2025";
         const eventTime = ticket.eventTime || "09:00 AM";
         const accent = "#60a5fa"; // modern blue
         const subtle = "#cbd5e1"; // slate-300

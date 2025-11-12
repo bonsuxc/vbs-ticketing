@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { verifyPayment, downloadTicketPDF } from "./api";
+import { verifyPayment } from "./api";
 import QRCode from "qrcode";
 
 export default function TicketForm() {
@@ -49,11 +49,6 @@ export default function TicketForm() {
 			// 2️⃣ Open ticket preview page
 			if (created.ticketId) {
 				window.open(`/ticket/${encodeURIComponent(created.ticketId)}`, "_blank");
-			}
-
-			// 3️⃣ Download the PDF ticket automatically (optional)
-			if (created._id) {
-				await downloadTicketPDF(created._id);
 			}
 
 			alert(

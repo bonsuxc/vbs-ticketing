@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 const API =
@@ -23,6 +23,15 @@ async function api(path, method = "GET", body, adminKey) {
 	} catch {
 		parsed = undefined;
 	}
+
+	async function loadLogs() {
+		try {
+			const res = await api("/api/admin/verify/logs", "GET", undefined, adminKey);
+			setLogs(res?.data || []);
+		} catch (e) {
+			// ignore silently
+		}
+	}
 	if (!res.ok) {
 		let message = parsed?.error || parsed?.message || text || "Request failed";
 		const error = new Error(message);
@@ -42,6 +51,16 @@ export default function Admin() {
 	const [importFile, setImportFile] = useState(null);
 	const [importing, setImporting] = useState(false);
 	const [importResults, setImportResults] = useState(null);
+	const [showVerify, setShowVerify] = useState(false);
+	const [verifying, setVerifying] = useState(false);
+	const [verifyMsg, setVerifyMsg] = useState("");
+	const [verifyStatus, setVerifyStatus] = useState("");
+	const [manualTicketId, setManualTicketId] = useState("");
+	const [logs, setLogs] = useState([]);
+
+	const videoRef = useRef(null);
+	const streamRef = useRef(null);
+	const scanTimerRef = useRef(null);
 
 	const [name, setName] = useState("");
 	const [phone, setPhone] = useState("");
@@ -57,8 +76,9 @@ export default function Admin() {
 		if (adminKey) {
 			localStorage.setItem(ADMIN_KEY_STORAGE, adminKey);
 			refresh();
+			if (showVerify) loadLogs();
 		}
-	}, [adminKey]);
+	}, [adminKey, showVerify]);
 
 	async function refresh() {
 		try {
@@ -187,6 +207,45 @@ export default function Admin() {
 		}
 	}
 
+	async function startScan() {
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+			streamRef.current = stream;
+			videoRef.current.srcObject = stream;
+			videoRef.current.play();
+			scanTimerRef.current = setInterval(() => {
+				// TO DO: implement QR code scanning logic here
+			}, 1000);
+		} catch (e) {
+			console.error("Failed to start scan:", e);
+		}
+	}
+
+	function stopScan() {
+		if (streamRef.current) {
+			streamRef.current.getTracks().forEach((track) => track.stop());
+			streamRef.current = null;
+		}
+		if (scanTimerRef.current) {
+			clearInterval(scanTimerRef.current);
+			scanTimerRef.current = null;
+		}
+	}
+
+	async function handleVerify(ticketId) {
+		try {
+			setVerifying(true);
+			const res = await api(`/api/admin/verify/${ticketId}`, "GET", undefined, adminKey);
+			setVerifyMsg(`Ticket ${ticketId} is ${res?.verified ? "verified" : "not verified"}`);
+			setVerifyStatus(res?.verified ? "verified" : "not verified");
+		} catch (e) {
+			setVerifyMsg(`Failed to verify ticket ${ticketId}: ${e.message}`);
+			setVerifyStatus("not verified");
+		} finally {
+			setVerifying(false);
+		}
+	}
+
 	return (
 		<div className="app" style={{ background: "#0b1220", color: "#e2e8f0" }}>
 			<div className="hero" style={{ minHeight: "100vh", background: "none" }}>
@@ -212,6 +271,66 @@ export default function Admin() {
 							<button className="sign-out-button" type="button" onClick={handleLogout}>
 								Sign out
 							</button>
+							<div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8, marginBottom: 8 }}>
+								<button type="button" onClick={() => setShowVerify(false)}>Manage</button>
+								<button type="button" onClick={() => { setShowVerify(true); loadLogs(); }}>Verify Ticket</button>
+							</div>
+
+							{showVerify ? (
+								<div className="form-wrapper" style={{ maxWidth: 720 }}>
+									<h3 style={{ marginTop: 0 }}>Verify Ticket</h3>
+									<div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+										<video ref={videoRef} style={{ width: "100%", maxHeight: 280, background: "#111", borderRadius: 8 }} muted playsInline />
+										<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+											<button type="button" onClick={startScan}>Start Scan</button>
+											<button type="button" onClick={stopScan}>Stop</button>
+										</div>
+										<div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+											<input
+												type="text"
+												placeholder="Enter or paste Ticket Code (e.g., VBS-ABC123)"
+												value={manualTicketId}
+												onChange={(e) => setManualTicketId(e.target.value)}
+												style={{ minWidth: 260 }}
+											/>
+											<button type="button" disabled={verifying || !manualTicketId} onClick={() => handleVerify(manualTicketId)}>
+												{verifying ? "Verifying..." : "Verify"}
+											</button>
+										</div>
+										{verifyMsg ? (
+											<div style={{ marginTop: 6, color: verifyStatus === "verified" ? "#86efac" : "#fecaca" }}>{verifyMsg}</div>
+										) : null}
+
+										<div style={{ marginTop: 16 }}>
+											<h4 style={{ marginTop: 0 }}>Recent Verifications</h4>
+											<div style={{ overflowX: "auto" }}>
+												<table style={{ width: "100%", borderCollapse: "collapse" }}>
+													<thead>
+														<tr style={{ textAlign: "left" }}>
+															<th style={{ padding: 8 }}>Ticket</th>
+															<th style={{ padding: 8 }}>Name</th>
+															<th style={{ padding: 8 }}>Phone</th>
+															<th style={{ padding: 8 }}>Verified At</th>
+															<th style={{ padding: 8 }}>By</th>
+														</tr>
+													</thead>
+													<tbody>
+														{logs.map((l, i) => (
+															<tr key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+																<td style={{ padding: 8, fontFamily: "monospace" }}>{l.ticketId}</td>
+																<td style={{ padding: 8 }}>{l.name}</td>
+																<td style={{ padding: 8 }}>{l.phone}</td>
+																<td style={{ padding: 8 }}>{l.verifiedAt ? new Date(l.verifiedAt).toLocaleString() : "—"}</td>
+																<td style={{ padding: 8 }}>{l.verifiedBy || "admin"}</td>
+															</tr>
+														))}
+													</tbody>
+												</table>
+											</div>
+										</div>
+									</div>
+								</div>
+							) : null}
 							<div className="form-wrapper" style={{ maxWidth: 520 }}>
 								<h3 style={{ marginTop: 0 }}>Bulk Manual Tickets</h3>
 								<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

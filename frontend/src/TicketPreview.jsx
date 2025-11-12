@@ -87,36 +87,32 @@ export default function TicketPreview() {
 								<p className="ticket-subtitle">International Community School Pakyi No. 2</p>
 							</div>
 
-							<div className="ticket-grid">
-								<InfoRow label="Full Name" value={ticket?.name} />
-								<InfoRow label="Phone Number" value={ticket?.phone} />
-								<InfoRow label="Ticket Type" value={ticket?.ticketType} />
-								<InfoRow label="Ticket Code" value={ticket?.ticketId} />
-								<InfoRow label="Secure Code" value={ticket?.accessCode} />
-								<InfoRow
-									label="Amount"
-									value={ticket?.amount ? `₵${Number(ticket.amount).toFixed(2)}` : "—"}
-								/>
-								<InfoRow
-									label="Event Date"
-									value={`${ticket?.eventDate || "27th December 2025"} · ${ticket?.eventTime || "09:00 AM"}`}
-								/>
-								<InfoRow
-									label="Issued On"
-									value={ticket?.createdAt ? new Date(ticket.createdAt).toLocaleString() : "—"}
-								/>
-								<InfoRow label="Status" value={ticket?.status || "—"} />
-							</div>
-
-							<div className="ticket-qr-section">
-								<div className="ticket-qr-box">
-									{qrImage ? (
-										<img src={qrImage} alt={`QR code for ${ticket?.ticketId}`} />
-									) : (
-										<span className="ticket-qr-fallback">QR unavailable</span>
-									)}
+							<div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+								<div style={{ flex: "1 1 360px", minWidth: 280 }}>
+									<div className="ticket-grid">
+										<InfoRow label="Full Name" value={ticket?.name} />
+										<InfoRow label="Phone Number" value={ticket?.phone} />
+										<InfoRow label="Ticket Type" value={ticket?.ticketType} />
+										<InfoRow label="Ticket Code" value={ticket?.ticketId} />
+										<InfoRow label="Secure Code" value={ticket?.accessCode} />
+										<InfoRow label="Amount" value={ticket?.amount ? `₵${Number(ticket.amount).toFixed(2)}` : "—"} />
+										<InfoRow label="Event Date" value={`${ticket?.eventDate || "December 27, 2025"} · ${ticket?.eventTime || "09:00 AM"}`} />
+										<InfoRow label="Issued On" value={ticket?.createdAt ? new Date(ticket.createdAt).toLocaleString() : "—"} />
+										<InfoRow label="Status" value={ticket?.status || "—"} />
+									</div>
 								</div>
-								<p className="ticket-qr-hint">Scan to verify your ticket instantly</p>
+								<div style={{ flex: "0 0 240px", marginLeft: "auto" }}>
+									<div className="ticket-qr-section">
+										<div className="ticket-qr-box">
+											{qrImage ? (
+												<img src={qrImage} alt={`QR code for ${ticket?.ticketId}`} />
+											) : (
+												<span className="ticket-qr-fallback">QR unavailable</span>
+											)}
+										</div>
+										<p className="ticket-qr-hint">Scan to verify your ticket instantly</p>
+									</div>
+								</div>
 							</div>
 
 							<button
