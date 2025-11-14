@@ -82,6 +82,129 @@ app.post("/api/admin/verify", requireAdmin, async (req, res) => {
     }
 });
 
+// ------------------ HUBTEL WEBHOOK (AUTO ISSUE) ------------------
+// Configure your Hubtel dashboard to POST payment notifications to:
+//   https://<your-domain>/api/hubtel/webhook
+// This route re-verifies the transaction with Hubtel and issues a ticket automatically.
+app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), async (req, res) => {
+    try {
+        const payload = req.body || {};
+        // Hubtel payloads vary; try multiple fields
+        const status = payload?.Status || payload?.status || payload?.Data?.status;
+        const amount = Number(payload?.Amount || payload?.amount || payload?.Data?.amount || 0);
+        const transactionRef = payload?.TransactionId || payload?.transactionId || payload?.Data?.TransactionId || payload?.Data?.transactionId || payload?.CheckoutId || payload?.checkoutId || payload?.Reference || payload?.reference;
+        const customerPhone = String(
+            payload?.CustomerMsisdn || payload?.customerMsisdn || payload?.Customer?.Msisdn || payload?.customer?.phoneNumber || payload?.Data?.customer?.phoneNumber || ""
+        ).trim();
+
+        // Acknowledge receipt immediately to avoid retries; continue work
+        res.status(200).json({ ok: true });
+
+        // Basic validation
+        if (!transactionRef) {
+            console.warn("Webhook missing transaction reference", payload);
+            return;
+        }
+
+        const TRUST = String(process.env.HUBTEL_WEBHOOK_TRUST || "").toLowerCase() === "true";
+        if (TRUST) {
+            // Trust-callback mode: do not call Hubtel, rely on payload
+            try {
+                const ok = String(status).toLowerCase() === "success";
+                const amt = Number.isFinite(amount) ? amount : 0;
+                const paidPhone = customerPhone;
+
+                if (!ok || !Number.isFinite(amt) || amt < 300) {
+                    console.warn("Webhook TRUST mode: status not success or amount too low", { status, amt });
+                    return;
+                }
+                if (!paidPhone) {
+                    console.warn("Webhook TRUST mode: missing phone; skipping ticket issue");
+                    return;
+                }
+
+                const unitPrice = 300;
+                const quantity = Math.floor(amt / unitPrice);
+                if (quantity < 1) return;
+                const existingCount = await prisma.payment.count({ where: { reference: transactionRef } });
+                for (let i = existingCount; i < quantity; i += 1) {
+                    const ticketId = await generateTicketId();
+                    // eslint-disable-next-line no-await-in-loop
+                    await prisma.payment.create({
+                        data: {
+                            name: String(payload?.CustomerName || payload?.customerName || payload?.Customer?.Name || payload?.customer?.name || ""),
+                            phone: paidPhone,
+                            amount: unitPrice,
+                            status: "Paid",
+                            reference: transactionRef,
+                            ticketType: "Regular",
+                            ticketId,
+                            eventDate: "Dec 27, 2025",
+                            accessCode: generateAccessCode(),
+                        },
+                    });
+                }
+            } catch (e) {
+                console.error("Webhook TRUST mode error", e?.message);
+            }
+        } else {
+            // Re-verify with Hubtel server-to-server
+            try {
+                const verifyRes = await axios.get(
+                    `https://api.hubtel.com/v1/merchantaccount/onlinecheckout/${encodeURIComponent(transactionRef)}`,
+                    { auth: { username: HUBTEL_MERCHANT_ID, password: HUBTEL_API_KEY } }
+                );
+                const data = verifyRes.data || {};
+                const ok = (data.status || data.Status) === "Success";
+                const amt = Number(data.amount || data.Amount || 0);
+                const paidPhone = String(data?.customer?.phoneNumber || customerPhone || "").trim();
+
+                if (!ok || !Number.isFinite(amt) || amt < 300) {
+                    console.warn("Webhook verify failed or amount too low", { ok, amt });
+                    return;
+                }
+
+                if (!paidPhone) {
+                    console.warn("Webhook verify missing phone; skipping ticket issue");
+                    return;
+                }
+
+                // Issue one ticket per paid unit, guard by reference for idempotency
+                const unitPrice = 300; // Regular ticket price
+                const quantity = Math.floor(amt / unitPrice);
+                if (quantity < 1) {
+                    console.warn("Amount below single ticket price after verification", { amt });
+                    return;
+                }
+                const existingCount = await prisma.payment.count({ where: { reference: transactionRef } });
+                for (let i = existingCount; i < quantity; i += 1) {
+                    const ticketId = await generateTicketId();
+                    // eslint-disable-next-line no-await-in-loop
+                    await prisma.payment.create({
+                        data: {
+                            name: data?.customer?.name || "",
+                            phone: paidPhone,
+                            amount: unitPrice,
+                            status: "Paid",
+                            reference: transactionRef,
+                            ticketType: "Regular",
+                            ticketId,
+                            eventDate: "Dec 27, 2025",
+                            accessCode: generateAccessCode(),
+                        },
+                    });
+                }
+            } catch (e) {
+                console.error("Hubtel webhook verify error", e?.response?.data || e?.message);
+            }
+        }
+    } catch (e) {
+        // If parsing fails, still acknowledge to avoid repeated retries
+        try { res.status(200).json({ ok: true }); } catch {}
+        console.error("Webhook handler error", e?.message);
+    }
+});
+
 app.get("/api/admin/verify/logs", requireAdmin, async (req, res) => {
     try {
         const logs = await prisma.payment.findMany({
@@ -99,37 +222,11 @@ app.get("/api/admin/verify/logs", requireAdmin, async (req, res) => {
 
 // ------------------ VERIFY PAYMENT ENDPOINT ------------------
 app.post("/api/verify-payment", async (req, res) => {
-    const { reference, name, phone, amount } = req.body;
+    const { reference, phone } = req.body;
 
     if (!reference) return res.status(400).json({ error: "Payment reference is required" });
 
     try {
-        // Manual path for non-Hubtel or testing
-        if (reference === "manual_payment") {
-            if (!name || !phone || typeof amount !== "number") {
-                return res.status(400).json({ error: "name, phone and amount are required for manual_payment" });
-            }
-            const existing = await prisma.payment.findFirst({ where: { phone } });
-            if (existing) {
-                return res.status(400).json({ message: "This number already has a ticket." });
-            }
-            const ticketId = await generateTicketId();
-            const created = await prisma.payment.create({
-                data: {
-                    name,
-                    phone,
-                    amount,
-                    status: "Paid",
-                    reference,
-                    ticketType: req.body.ticketType || "Regular",
-                    ticketId,
-                    eventDate: "Dec 27, 2025",
-                    accessCode: generateAccessCode(),
-                },
-            });
-            return res.json({ success: true, message: "Ticket issued successfully", data: { ...created, _id: String(created.id) } });
-        }
-
         const response = await axios.get(
             `https://api.hubtel.com/v1/merchantaccount/onlinecheckout/${reference}`,
             {
@@ -141,8 +238,13 @@ app.post("/api/verify-payment", async (req, res) => {
         );
 
         const paymentData = response.data;
-        if (paymentData.status === "Success" && paymentData.amount >= 300) {
-            const existingPayment = await prisma.payment.findFirst({ where: { phone: paymentData.customer.phoneNumber } });
+        if (paymentData.status === "Success" && Number(paymentData.amount) >= 300) {
+            const paidPhone = String(paymentData?.customer?.phoneNumber || "").trim();
+            if (phone && String(phone).trim() && paidPhone && paidPhone !== String(phone).trim()) {
+                return res.status(400).json({ success: false, message: "Phone number does not match payment record" });
+            }
+
+            const existingPayment = await prisma.payment.findFirst({ where: { phone: paidPhone } });
 
             if (existingPayment) {
                 return res.status(400).json({ message: "This number already has a ticket." });
@@ -151,9 +253,9 @@ app.post("/api/verify-payment", async (req, res) => {
             const ticketId = await generateTicketId();
             const created = await prisma.payment.create({
                 data: {
-                    name: paymentData.customer.name,
-                    phone: paymentData.customer.phoneNumber,
-                    amount: paymentData.amount,
+                    name: paymentData?.customer?.name || "",
+                    phone: paidPhone,
+                    amount: Number(paymentData.amount),
                     status: "Paid",
                     reference: reference,
                     ticketType: req.body.ticketType || "Regular",
