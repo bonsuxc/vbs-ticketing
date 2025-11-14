@@ -7,6 +7,7 @@ export default function TicketForm() {
     const [results, setResults] = useState([]);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState("");
+    const [polling, setPolling] = useState(false);
 
     const ussdTelLink = useMemo(() => "tel:*713*7674%23", []);
     const ussdDisplay = useMemo(() => "*713*7674#", []);
@@ -34,12 +35,42 @@ export default function TicketForm() {
             const json = await res.json();
             if (!res.ok) throw new Error(json?.error || "Lookup failed");
             setResults(json?.data || []);
-            if (!json?.data?.length) setMessage("No tickets found yet. If you just paid, please wait a moment and try again.");
+            if (!json?.data?.length) {
+                setMessage("Waiting for payment confirmation... we'll auto-refresh for up to 60s.");
+                // start short polling up to 60s
+                startPolling(p);
+            }
         } catch (err) {
             setMessage(err.message || "Lookup failed");
         } finally {
             setLoading(false);
         }
+    }
+
+    async function startPolling(p) {
+        let attempts = 0;
+        if (polling) return;
+        setPolling(true);
+        const base = (typeof window !== "undefined" && (import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || window.location.origin)) || "";
+        const timer = setInterval(async () => {
+            attempts += 1;
+            try {
+                const res = await fetch(`${base}/api/tickets/by-phone/${encodeURIComponent(p)}`);
+                const json = await res.json();
+                if (json?.data?.length) {
+                    clearInterval(timer);
+                    setResults(json.data);
+                    setMessage("");
+                    setPolling(false);
+                } else if (attempts >= 12) {
+                    clearInterval(timer);
+                    setMessage("No tickets found yet. If you just paid, please try again shortly.");
+                    setPolling(false);
+                }
+            } catch {
+                // ignore transient errors
+            }
+        }, 5000);
     }
 
     return (
