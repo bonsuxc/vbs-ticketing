@@ -510,33 +510,20 @@ app.get("/api/tickets/:ticketId", async (req, res) => {
 app.get("/api/tickets/:ticketId/verify", async (req, res) => {
     try {
         const ticket = await prisma.payment.findUnique({ where: { ticketId: req.params.ticketId } });
-        // If browser (prefers HTML), redirect to the styled page
+        // If browser (prefers HTML), redirect to the neutral ticket page without revealing verification outcome
         const acceptsHtml = /text\/html/.test(String(req.headers.accept || ""));
         if (acceptsHtml) {
-            if (!ticket) {
-                return res.redirect(302, `/ticket/${encodeURIComponent(req.params.ticketId)}?verified=1&invalid=1`);
-            }
-            const used = Boolean(ticket.used);
-            const qs = used ? "?verified=1&used=1" : "?verified=1";
-            return res.redirect(302, `/ticket/${encodeURIComponent(ticket.ticketId)}${qs}`);
+            const id = ticket ? ticket.ticketId : req.params.ticketId;
+            return res.redirect(302, `/ticket/${encodeURIComponent(id)}`);
         }
-        // Fallback JSON (for programmatic clients)
+        // JSON: do not reveal verification status (only admin verify should)
         if (!ticket) {
-            return res.status(404).json({ valid: false, message: "Ticket not found" });
+            return res.status(404).json({ ok: false, message: "Ticket not found" });
         }
-        return res.json({
-            valid: true,
-            ticketId: ticket.ticketId,
-            name: ticket.name,
-            phone: ticket.phone,
-            status: ticket.status,
-            ticketType: ticket.ticketType,
-            eventDate: ticket.eventDate,
-            eventTime: ticket.eventTime,
-        });
+        return res.json({ ok: true, ticketId: ticket.ticketId });
     } catch (e) {
         console.error(e);
-        return res.status(500).json({ valid: false, message: "Failed to verify ticket" });
+        return res.status(500).json({ ok: false, message: "Failed to verify ticket" });
     }
 });
 
