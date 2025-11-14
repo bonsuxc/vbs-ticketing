@@ -28,6 +28,20 @@ if (!DATABASE_URL) {
     process.exit(1);
 }
 
+// Normalize Ghana phone numbers to E.164-like without plus: 233XXXXXXXXX
+function normalizePhoneGH(input) {
+    if (!input) return "";
+    let s = String(input).replace(/\D+/g, "");
+    if (s.startsWith("00")) s = s.slice(2);
+    if (s.startsWith("+")) s = s.slice(1);
+    if (s.startsWith("233") && s.length === 12) return s; // 233 + 9 digits
+    if (s.startsWith("0") && s.length === 10) return `233${s.slice(1)}`;
+    if (s.length === 9) return `233${s}`;
+    // If already 12 starting with 233, keep; otherwise return as-is digits
+    if (s.startsWith("233") && s.length === 12) return s;
+    return s;
+}
+
 function generateAccessCode() {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // omit ambiguous
     let code = "";
@@ -88,8 +102,17 @@ app.get("/api/tickets/by-phone/:phone", async (req, res) => {
         const raw = String(req.params.phone || "").trim();
         if (!raw) return res.status(400).json({ error: "Phone is required" });
         const phone = raw;
+        // Match normalized forms and last 9 digits to be forgiving
+        const norm = normalizePhoneGH(phone);
+        const last9 = norm.slice(-9);
         const tickets = await prisma.payment.findMany({
-            where: { phone },
+            where: {
+                OR: [
+                    { phone: norm },
+                    { phone: phone },
+                    { phone: { endsWith: last9 } },
+                ],
+            },
             orderBy: { createdAt: "desc" },
             take: 25,
         });
@@ -144,12 +167,13 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                 const ok = String(status).toLowerCase() === "success";
                 const amt = Number.isFinite(amount) ? amount : 0;
                 const paidPhone = customerPhone;
+                const normPhone = normalizePhoneGH(paidPhone);
 
                 if (!ok || !Number.isFinite(amt) || amt < 300) {
                     console.warn("Webhook TRUST mode: status not success or amount too low", { status, amt });
                     return;
                 }
-                if (!paidPhone) {
+                if (!normPhone) {
                     console.warn("Webhook TRUST mode: missing phone; skipping ticket issue");
                     return;
                 }
@@ -164,7 +188,7 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                     await prisma.payment.create({
                         data: {
                             name: String(payload?.CustomerName || payload?.customerName || payload?.Customer?.Name || payload?.customer?.name || ""),
-                            phone: paidPhone,
+                            phone: normPhone,
                             amount: unitPrice,
                             status: "Paid",
                             reference: transactionRef,
@@ -189,13 +213,14 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                 const ok = (data.status || data.Status) === "Success";
                 const amt = Number(data.amount || data.Amount || 0);
                 const paidPhone = String(data?.customer?.phoneNumber || customerPhone || "").trim();
+                const normPhone = normalizePhoneGH(paidPhone);
 
                 if (!ok || !Number.isFinite(amt) || amt < 300) {
                     console.warn("Webhook verify failed or amount too low", { ok, amt });
                     return;
                 }
 
-                if (!paidPhone) {
+                if (!normPhone) {
                     console.warn("Webhook verify missing phone; skipping ticket issue");
                     return;
                 }
@@ -214,7 +239,7 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                     await prisma.payment.create({
                         data: {
                             name: data?.customer?.name || "",
-                            phone: paidPhone,
+                            phone: normPhone,
                             amount: unitPrice,
                             status: "Paid",
                             reference: transactionRef,
