@@ -82,6 +82,37 @@ app.post("/api/admin/verify", requireAdmin, async (req, res) => {
     }
 });
 
+// Public lookup: find all tickets by phone (self-serve after payment)
+app.get("/api/tickets/by-phone/:phone", async (req, res) => {
+    try {
+        const raw = String(req.params.phone || "").trim();
+        if (!raw) return res.status(400).json({ error: "Phone is required" });
+        const phone = raw;
+        const tickets = await prisma.payment.findMany({
+            where: { phone },
+            orderBy: { createdAt: "desc" },
+            take: 25,
+        });
+        return res.json({ count: tickets.length, data: tickets.map((t) => ({
+            id: t.id,
+            name: t.name,
+            phone: t.phone,
+            amount: t.amount,
+            status: t.status,
+            reference: t.reference,
+            ticketType: t.ticketType,
+            ticketId: t.ticketId,
+            eventDate: t.eventDate,
+            eventTime: t.eventTime,
+            used: t.used,
+            createdAt: t.createdAt,
+        })) });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: "Failed to lookup tickets" });
+    }
+});
+
 // ------------------ HUBTEL WEBHOOK (AUTO ISSUE) ------------------
 // Configure your Hubtel dashboard to POST payment notifications to:
 //   https://<your-domain>/api/hubtel/webhook

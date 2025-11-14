@@ -3,20 +3,44 @@ import QRCode from "qrcode";
 
 export default function TicketForm() {
     const [qrDataUrl, setQrDataUrl] = useState("");
+    const [phone, setPhone] = useState("");
+    const [results, setResults] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [message, setMessage] = useState("");
 
     const ussdTelLink = useMemo(() => "tel:*713*7674%23", []);
     const ussdDisplay = useMemo(() => "*713*7674#", []);
     const dialButtonLabel = useMemo(() => "Dial 7137674#", []);
 
-    // Generate QR for USSD dial
-    // %23 encodes # for USSD compatibility
     useEffect(() => {
         QRCode.toDataURL(ussdTelLink, { margin: 1, scale: 6 })
             .then(setQrDataUrl)
             .catch(() => setQrDataUrl(""));
     }, [ussdTelLink]);
 
-    // No submission; tickets are issued automatically when Hubtel notifies our webhook
+    async function lookupByPhone(e) {
+        e?.preventDefault?.();
+        setResults([]);
+        setMessage("");
+        const p = String(phone || "").trim();
+        if (!p) {
+            setMessage("Enter your phone number to find your tickets");
+            return;
+        }
+        try {
+            setLoading(true);
+            const base = (typeof window !== "undefined" && (import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || window.location.origin)) || "";
+            const res = await fetch(`${base}/api/tickets/by-phone/${encodeURIComponent(p)}`);
+            const json = await res.json();
+            if (!res.ok) throw new Error(json?.error || "Lookup failed");
+            setResults(json?.data || []);
+            if (!json?.data?.length) setMessage("No tickets found yet. If you just paid, please wait a moment and try again.");
+        } catch (err) {
+            setMessage(err.message || "Lookup failed");
+        } finally {
+            setLoading(false);
+        }
+    }
 
     return (
         <div className="ticket-form">
@@ -29,9 +53,53 @@ export default function TicketForm() {
                     {dialButtonLabel}
                 </a>
                 <small style={{ color: "#e2e8f0", textAlign: "center" }}>
-                    After successful payment, your ticket will be created automatically. Use "View Ticket" to see your pass.
+                    After paying GHS 300 or above, enter your phone below to view your ticket(s).
                 </small>
             </div>
+
+            <form className="ticket-form" onSubmit={lookupByPhone} style={{ marginTop: 16 }}>
+                <input
+                    type="text"
+                    placeholder="Enter Phone Number (e.g. 233245905500)"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    required
+                />
+                <button type="submit" disabled={loading}>{loading ? "Checking..." : "Find My Tickets"}</button>
+                {message ? <small style={{ color: "#e2e8f0" }}>{message}</small> : null}
+            </form>
+
+            {results && results.length ? (
+                <div className="form-wrapper" style={{ marginTop: 16 }}>
+                    <h3 style={{ marginTop: 0 }}>Your Tickets</h3>
+                    <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                            <thead>
+                                <tr style={{ textAlign: "left" }}>
+                                    <th style={{ padding: 8 }}>Type</th>
+                                    <th style={{ padding: 8 }}>Amount</th>
+                                    <th style={{ padding: 8 }}>Status</th>
+                                    <th style={{ padding: 8 }}>Ticket Code</th>
+                                    <th style={{ padding: 8 }}></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {results.map((t) => (
+                                    <tr key={t.ticketId} style={{ borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+                                        <td style={{ padding: 8 }}>{t.ticketType}</td>
+                                        <td style={{ padding: 8 }}>₵{t.amount}</td>
+                                        <td style={{ padding: 8 }}>{t.status}</td>
+                                        <td style={{ padding: 8, fontFamily: "monospace" }}>{t.ticketId}</td>
+                                        <td style={{ padding: 8 }}>
+                                            <button type="button" onClick={() => window.open(`/ticket/${encodeURIComponent(t.ticketId)}`, "_blank")}>View</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }
