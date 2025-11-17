@@ -100,6 +100,37 @@ export default function Admin() {
 		}
 	}
 
+	async function handleResolveTxn(e) {
+		e.preventDefault();
+		setError("");
+		setResolveResult(null);
+		if (!resolveRef || !resolvePhone) {
+			setError("Client reference and phone are required");
+			return;
+		}
+		try {
+			setResolving(true);
+			const body = {
+				clientReference: resolveRef.trim(),
+				phone: resolvePhone.trim(),
+				name: resolveName.trim() || undefined,
+			};
+			const res = await api("/api/admin/resolve-txn", "POST", body, adminKey);
+			setResolveResult(res || {});
+			await refresh();
+		} catch (e) {
+			if (e.status === 401) {
+				localStorage.removeItem(ADMIN_KEY_STORAGE);
+				setAdminKey("");
+				setError("Session expired. Please sign in again.");
+			} else {
+				setError(e.message || "Resolve failed");
+			}
+		} finally {
+			setResolving(false);
+		}
+	}
+
 	async function loadLogs() {
 		try {
 			const data = await api("/api/admin/verify/logs", "GET", undefined, adminKey);
