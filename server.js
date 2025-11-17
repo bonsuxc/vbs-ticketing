@@ -98,6 +98,84 @@ app.post("/api/admin/verify", requireAdmin, async (req, res) => {
     }
 });
 
+// ------------------ ADMIN RESOLVE TXN BY CLIENT REFERENCE ------------------
+// This endpoint is used when a webhook did not arrive but you have a
+// clientReference from Online Checkout and need to reconcile manually.
+// It uses the Transaction Status API; if status is Paid, it will issue
+// tickets (1 per GHS 300) if they do not already exist for that reference.
+app.post("/api/admin/resolve-txn", requireAdmin, async (req, res) => {
+    try {
+        const { clientReference, phone, name } = req.body || {};
+        if (!clientReference) return res.status(400).json({ ok: false, error: "clientReference is required" });
+        if (!phone) return res.status(400).json({ ok: false, error: "phone is required" });
+
+        const normPhone = normalizePhoneGH(phone);
+        if (!normPhone) return res.status(400).json({ ok: false, error: "phone could not be normalized" });
+
+        const url = `https://api-txnstatus.hubtel.com/transactions/${encodeURIComponent(HUBTEL_POS_SALES_ID)}/status`;
+        const response = await axios.get(url, {
+            params: { clientReference },
+            auth: {
+                username: HUBTEL_MERCHANT_ID,
+                password: HUBTEL_API_KEY,
+            },
+        });
+
+        const body = response.data || {};
+        const data = body.data || {};
+        const status = data.status || "";
+        const amount = Number(data.amount || 0);
+
+        if (body.responseCode !== "0000") {
+            return res.status(400).json({ ok: false, error: "Hubtel status check not successful", hubtel: body });
+        }
+        if (status !== "Paid") {
+            return res.status(200).json({ ok: true, resolved: false, status, message: "Transaction is not marked as Paid" });
+        }
+        if (!Number.isFinite(amount) || amount < 300) {
+            return res.status(200).json({ ok: true, resolved: false, status, message: "Amount below ticket threshold", amount });
+        }
+
+        const unitPrice = 300;
+        const quantity = Math.floor(amount / unitPrice);
+        const existingCount = await prisma.payment.count({ where: { reference: clientReference } });
+        let created = 0;
+        for (let i = existingCount; i < quantity; i += 1) {
+            const ticketId = await generateTicketId();
+            // eslint-disable-next-line no-await-in-loop
+            await prisma.payment.create({
+                data: {
+                    name: name || "",
+                    phone: normPhone,
+                    amount: unitPrice,
+                    status: "Paid",
+                    reference: clientReference,
+                    ticketType: "Regular",
+                    ticketId,
+                    eventDate: "Dec 27, 2025",
+                    accessCode: generateAccessCode(),
+                },
+            });
+            created += 1;
+        }
+
+        return res.json({
+            ok: true,
+            resolved: created > 0,
+            status,
+            amount,
+            quantity,
+            existingCount,
+            created,
+        });
+    } catch (e) {
+        const status = e?.response?.status || 500;
+        const body = e?.response?.data;
+        console.error("Admin resolve-txn error", body || e.message);
+        return res.status(status).json({ ok: false, error: "Failed to resolve transaction", details: body || e.message });
+    }
+});
+
 // ------------------ HUBTEL TRANSACTION STATUS CHECK (MANDATORY API) ------------------
 // Wraps: https://api-txnstatus.hubtel.com/transactions/{POS_Sales_ID}/status?clientReference=...
 // Called from your whitelisted VPS IP only.
