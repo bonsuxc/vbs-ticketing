@@ -63,6 +63,8 @@ export default function Admin() {
 	const [scanOpen, setScanOpen] = useState(false);
 	const [scanError, setScanError] = useState("");
 	const [streamRef, setStreamRef] = useState(null);
+	const [videoTrack, setVideoTrack] = useState(null);
+	const [torchOn, setTorchOn] = useState(false);
 	const videoId = "qr_video_el";
 
 	const amount = useMemo(() => {
@@ -184,6 +186,8 @@ export default function Admin() {
 			if ("BarcodeDetector" in window) {
 				const stream = await navigator.mediaDevices.getUserMedia(constraints);
 				setStreamRef(stream);
+				const track = stream.getVideoTracks()[0];
+				setVideoTrack(track || null);
 				const video = document.getElementById(videoId);
 				if (video) {
 					video.srcObject = stream;
@@ -256,8 +260,31 @@ export default function Admin() {
 				streamRef.getTracks().forEach((t) => t.stop());
 				setStreamRef(null);
 			}
+			if (videoTrack) {
+				try {
+					videoTrack.stop();
+				} catch {}
+				setVideoTrack(null);
+				setTorchOn(false);
+			}
 		} catch {}
 		setScanOpen(false);
+	}
+
+	async function toggleFlash() {
+		try {
+			if (!videoTrack || !videoTrack.getCapabilities) return;
+			const capabilities = videoTrack.getCapabilities();
+			if (!capabilities || !capabilities.torch) {
+				setScanError("Flashlight not supported on this device");
+				return;
+			}
+			const next = !torchOn;
+			await videoTrack.applyConstraints({ advanced: [{ torch: next }] });
+			setTorchOn(next);
+		} catch (e) {
+			setScanError(e?.message || "Unable to toggle flashlight");
+		}
 	}
 
 	async function handleLogin(e) {
@@ -417,17 +444,22 @@ export default function Admin() {
 										) : null}
 									</form>
 									{scanOpen ? (
-										<div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-											<div style={{ background: "#0b1220", border: "1px solid rgba(148,163,184,0.3)", borderRadius: 12, padding: 12, width: "min(520px, 96vw)" }}>
-												<h4 style={{ margin: 0, color: "#e2e8f0" }}>Scan QR</h4>
-												<div style={{ marginTop: 8, display: "flex", justifyContent: "center" }}>
-													<video id={videoId} playsInline muted style={{ width: "100%", borderRadius: 8, background: "#111827" }} />
-												</div>
-												{scanError ? <p style={{ color: "#fecaca", marginTop: 8 }}>{scanError}</p> : null}
-												<div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
-													<button type="button" onClick={stopScan}>Close</button>
-												</div>
-											</div>
+										<div className="qr-scanner-overlay">
+											<video id={videoId} className="qr-scanner-video" playsInline muted />
+											<div className="scanner-frame" />
+											<div className="scan-hint">Find a code to scan</div>
+											<button
+												id="flash-btn"
+												type="button"
+												className={`flash-btn${torchOn ? " flash-btn--active" : ""}`}
+												onClick={toggleFlash}
+											>
+												🔦
+											</button>
+											<button type="button" className="scanner-close-btn" onClick={stopScan}>
+												Close
+											</button>
+											{scanError ? <p style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", color: "#fecaca", background: "rgba(0,0,0,0.6)", padding: "6px 10px", borderRadius: 999, fontSize: 12, zIndex: 20 }}>{scanError}</p> : null}
 										</div>
 									) : null}
 									<div style={{ marginTop: 16 }}>

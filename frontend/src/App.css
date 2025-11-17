@@ -514,6 +514,99 @@ html, body {
   }
 }
 
+/* -------- Fullscreen QR Scanner (Admin Verify) -------- */
+.qr-scanner-overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.qr-scanner-video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  z-index: -1;
+}
+
+.scanner-frame {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 260px;
+  height: 260px;
+  transform: translate(-50%, -50%);
+  border: 4px solid rgba(255, 255, 255, 0.8);
+  border-radius: 32px;
+  z-index: 10;
+}
+
+.scan-hint {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  padding: 10px 18px;
+  border-radius: 16px;
+  font-size: 16px;
+  z-index: 20;
+}
+
+.flash-btn {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  font-size: 26px;
+  color: #ffffff;
+  z-index: 20;
+  cursor: pointer;
+}
+
+.flash-btn--active {
+  background: rgba(255, 255, 255, 0.85);
+  color: #000000;
+}
+
+.scanner-close-btn {
+  position: fixed;
+  top: 24px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  z-index: 20;
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .hero-content {
+    padding: 12px !important;
+  }
+
+  .ticket-form input,
+  .ticket-form select,
+  .ticket-form button {
+    font-size: 14px;
+  }
+}
+
 @keyframes fadeInUp {
   from {
     opacity: 0;
