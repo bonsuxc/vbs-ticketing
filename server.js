@@ -70,6 +70,7 @@ async function generateTicketId() {
 const HUBTEL_BASE_URL = "https://api.hubtel.com/v1/merchantaccount/merchants";
 const HUBTEL_MERCHANT_ID = process.env.HUBTEL_API_ID || "";
 const HUBTEL_API_KEY = process.env.HUBTEL_API_KEY || "";
+const HUBTEL_POS_SALES_ID = process.env.HUBTEL_POS_SALES_ID || "002032168";
 
 // ------------------ SIMPLE ADMIN AUTH MIDDLEWARE ------------------
 function requireAdmin(req, res, next) {
@@ -94,6 +95,47 @@ app.post("/api/admin/verify", requireAdmin, async (req, res) => {
     } catch (e) {
         console.error(e);
         return res.status(500).json({ ok: false, message: "Verification failed" });
+    }
+});
+
+// ------------------ HUBTEL TRANSACTION STATUS CHECK (MANDATORY API) ------------------
+// Wraps: https://api-txnstatus.hubtel.com/transactions/{POS_Sales_ID}/status?clientReference=...
+// Called from your whitelisted VPS IP only.
+app.get("/api/hubtel/txn-status", async (req, res) => {
+    try {
+        const clientReference = String(req.query.clientReference || "").trim();
+        if (!clientReference) return res.status(400).json({ ok: false, error: "clientReference query param is required" });
+
+        const url = `https://api-txnstatus.hubtel.com/transactions/${encodeURIComponent(HUBTEL_POS_SALES_ID)}/status`;
+        const response = await axios.get(url, {
+            params: { clientReference },
+            auth: {
+                username: HUBTEL_MERCHANT_ID,
+                password: HUBTEL_API_KEY,
+            },
+        });
+
+        const body = response.data || {};
+        const data = body.data || {};
+        return res.json({
+            ok: true,
+            clientReference,
+            hubtelResponseCode: body.responseCode || null,
+            hubtelMessage: body.message || null,
+            status: data.status || null,
+            amount: data.amount || null,
+            charges: data.charges || null,
+            amountAfterCharges: data.amountAfterCharges || null,
+            transactionId: data.transactionId || null,
+            externalTransactionId: data.externalTransactionId || null,
+            paymentMethod: data.paymentMethod || null,
+            raw: body,
+        });
+    } catch (e) {
+        const status = e?.response?.status || 500;
+        const body = e?.response?.data;
+        console.error("Hubtel txn-status API error", body || e.message);
+        return res.status(status).json({ ok: false, error: "Failed to call Hubtel Transaction Status API", details: body || e.message });
     }
 });
 
