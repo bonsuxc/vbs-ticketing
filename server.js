@@ -71,6 +71,14 @@ const HUBTEL_BASE_URL = "https://api.hubtel.com/v1/merchantaccount/merchants";
 const HUBTEL_MERCHANT_ID = process.env.HUBTEL_API_ID || "";
 const HUBTEL_API_KEY = process.env.HUBTEL_API_KEY || "";
 const HUBTEL_POS_SALES_ID = process.env.HUBTEL_POS_SALES_ID || "002032168";
+// Minimum amount required to issue tickets from Hubtel payments.
+// For testing, this is temporarily 0. Set MIN_TICKET_AMOUNT=300 in env
+// and restart to restore the production rule.
+const MIN_TICKET_AMOUNT = Number(process.env.MIN_TICKET_AMOUNT || 0);
+// TEMPORARY TEST MODE: when true, any successful payment with amount > 0
+// will issue exactly 1 ticket, regardless of amount or MIN_TICKET_AMOUNT.
+// Disable by setting HUBTEL_TEST_ANY_AMOUNT=false after testing.
+const TEST_ANY_AMOUNT = String(process.env.HUBTEL_TEST_ANY_AMOUNT || "").toLowerCase() === "true";
 
 // ------------------ SIMPLE ADMIN AUTH MIDDLEWARE ------------------
 function requireAdmin(req, res, next) {
@@ -132,12 +140,12 @@ app.post("/api/admin/resolve-txn", requireAdmin, async (req, res) => {
         if (status !== "Paid") {
             return res.status(200).json({ ok: true, resolved: false, status, message: "Transaction is not marked as Paid" });
         }
-        if (!Number.isFinite(amount) || amount < 300) {
-            return res.status(200).json({ ok: true, resolved: false, status, message: "Amount below ticket threshold", amount });
+        if (!TEST_ANY_AMOUNT && (!Number.isFinite(amount) || amount < MIN_TICKET_AMOUNT)) {
+            return res.status(200).json({ ok: true, resolved: false, status, message: "Amount below ticket threshold", amount, minAmount: MIN_TICKET_AMOUNT });
         }
 
         const unitPrice = 300;
-        const quantity = Math.floor(amount / unitPrice);
+        const quantity = TEST_ANY_AMOUNT ? (amount > 0 ? 1 : 0) : Math.floor(amount / unitPrice);
         const existingCount = await prisma.payment.count({ where: { reference: clientReference } });
         let created = 0;
         for (let i = existingCount; i < quantity; i += 1) {
@@ -347,8 +355,8 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                 const paidPhone = customerPhone;
                 const normPhone = normalizePhoneGH(paidPhone);
 
-                if (!ok || !Number.isFinite(amt) || amt < 300) {
-                    console.warn("Webhook TRUST mode: status not success or amount too low", { status, amt });
+                if (!TEST_ANY_AMOUNT && (!Number.isFinite(amt) || amt < MIN_TICKET_AMOUNT || !ok)) {
+                    console.warn("Webhook TRUST mode: status not success or amount too low", { status, amt, minAmount: MIN_TICKET_AMOUNT });
                     return;
                 }
                 if (!normPhone) {
@@ -357,7 +365,7 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                 }
 
                 const unitPrice = 300;
-                const quantity = Math.floor(amt / unitPrice);
+                const quantity = TEST_ANY_AMOUNT ? (amt > 0 ? 1 : 0) : Math.floor(amt / unitPrice);
                 if (quantity < 1) return;
                 const existingCount = await prisma.payment.count({ where: { reference: transactionRef } });
                 webhookEvents.push({ ts: new Date().toISOString(), kind: "process", mode: "trust", transactionRef, normPhone, quantity, existingCount });
@@ -396,8 +404,8 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                 const paidPhone = String(data?.customer?.phoneNumber || customerPhone || "").trim();
                 const normPhone = normalizePhoneGH(paidPhone);
 
-                if (!ok || !Number.isFinite(amt) || amt < 300) {
-                    console.warn("Webhook verify failed or amount too low", { ok, amt });
+                if (!TEST_ANY_AMOUNT && (!Number.isFinite(amt) || amt < MIN_TICKET_AMOUNT || !ok)) {
+                    console.warn("Webhook verify failed or amount too low", { ok, amt, minAmount: MIN_TICKET_AMOUNT });
                     return;
                 }
 
@@ -408,7 +416,7 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
 
                 // Issue one ticket per paid unit, guard by reference for idempotency
                 const unitPrice = 300; // Regular ticket price
-                const quantity = Math.floor(amt / unitPrice);
+                const quantity = TEST_ANY_AMOUNT ? (amt > 0 ? 1 : 0) : Math.floor(amt / unitPrice);
                 if (quantity < 1) {
                     console.warn("Amount below single ticket price after verification", { amt });
                     return;
