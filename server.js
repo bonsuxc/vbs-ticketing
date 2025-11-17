@@ -51,6 +51,7 @@ function generateAccessCode() {
     return code;
 }
 const ADMIN_KEY = process.env.ADMIN_KEY || "VBSAdmin#8372";
+const webhookEvents = [];
 
 // ------------------ HELPERS ------------------
 async function generateTicketId() {
@@ -93,6 +94,59 @@ app.post("/api/admin/verify", requireAdmin, async (req, res) => {
     } catch (e) {
         console.error(e);
         return res.status(500).json({ ok: false, message: "Verification failed" });
+    }
+});
+
+// ------------------ HUBTEL MANUAL STATUS CHECK (ONLINE CHECKOUT) ------------------
+// This endpoint lets you (or Hubtel) explicitly check the status of an Online Checkout
+// transaction from your whitelisted server IP.
+// Usage (example):
+//   GET /api/hubtel/transactions/{reference}/status
+//     where {reference} is the Online Checkout TransactionId / CheckoutId / reference used.
+app.get("/api/hubtel/transactions/:reference/status", async (req, res) => {
+    try {
+        const { reference } = req.params || {};
+        if (!reference) return res.status(400).json({ error: "reference is required" });
+
+        const url = `https://api.hubtel.com/v1/merchantaccount/onlinecheckout/${encodeURIComponent(reference)}`;
+        const response = await axios.get(url, {
+            auth: {
+                username: HUBTEL_MERCHANT_ID,
+                password: HUBTEL_API_KEY,
+            },
+        });
+        const data = response.data || {};
+        const st = String(data.status || data.Status || "").toLowerCase();
+        const ok = ["success", "successful", "completed"].includes(st);
+        const amount = Number(data.amount || data.Amount || 0) || null;
+        const phone = data?.customer?.phoneNumber || null;
+        const name = data?.customer?.name || null;
+
+        return res.json({
+            ok: true,
+            reference,
+            hubtelStatus: data.status || data.Status || null,
+            isSuccessful: ok,
+            amount,
+            customerName: name,
+            customerPhone: phone,
+            raw: data,
+        });
+    } catch (e) {
+        const status = e?.response?.status || 500;
+        const body = e?.response?.data;
+        console.error("Hubtel manual status-check error", body || e.message);
+        return res.status(status).json({ ok: false, error: "Failed to fetch status from Hubtel", details: body || e.message });
+    }
+});
+
+app.get("/api/admin/webhook-events", requireAdmin, async (req, res) => {
+    try {
+        const take = Math.max(1, Math.min(200, Number(req.query.take || 50)));
+        const data = webhookEvents.slice(-take);
+        return res.json({ count: data.length, data });
+    } catch (e) {
+        return res.status(500).json({ error: "Failed to fetch webhook events" });
     }
 });
 
@@ -151,6 +205,9 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
             payload?.CustomerMsisdn || payload?.customerMsisdn || payload?.Customer?.Msisdn || payload?.customer?.phoneNumber || payload?.Data?.customer?.phoneNumber || ""
         ).trim();
 
+        webhookEvents.push({ ts: new Date().toISOString(), kind: "received", status, amount, transactionRef, customerPhone });
+        if (webhookEvents.length > 200) webhookEvents.shift();
+
         // Acknowledge receipt immediately to avoid retries; continue work
         res.status(200).json({ ok: true });
 
@@ -164,7 +221,8 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
         if (TRUST) {
             // Trust-callback mode: do not call Hubtel, rely on payload
             try {
-                const ok = String(status).toLowerCase() === "success";
+                const st = String(status || "").toLowerCase();
+                const ok = ["success", "successful", "completed"].includes(st);
                 const amt = Number.isFinite(amount) ? amount : 0;
                 const paidPhone = customerPhone;
                 const normPhone = normalizePhoneGH(paidPhone);
@@ -182,6 +240,8 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                 const quantity = Math.floor(amt / unitPrice);
                 if (quantity < 1) return;
                 const existingCount = await prisma.payment.count({ where: { reference: transactionRef } });
+                webhookEvents.push({ ts: new Date().toISOString(), kind: "process", mode: "trust", transactionRef, normPhone, quantity, existingCount });
+                if (webhookEvents.length > 200) webhookEvents.shift();
                 for (let i = existingCount; i < quantity; i += 1) {
                     const ticketId = await generateTicketId();
                     // eslint-disable-next-line no-await-in-loop
@@ -210,7 +270,8 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                     { auth: { username: HUBTEL_MERCHANT_ID, password: HUBTEL_API_KEY } }
                 );
                 const data = verifyRes.data || {};
-                const ok = (data.status || data.Status) === "Success";
+                const st = String(data.status || data.Status || "").toLowerCase();
+                const ok = ["success", "successful", "completed"].includes(st);
                 const amt = Number(data.amount || data.Amount || 0);
                 const paidPhone = String(data?.customer?.phoneNumber || customerPhone || "").trim();
                 const normPhone = normalizePhoneGH(paidPhone);
@@ -233,6 +294,8 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
                     return;
                 }
                 const existingCount = await prisma.payment.count({ where: { reference: transactionRef } });
+                webhookEvents.push({ ts: new Date().toISOString(), kind: "process", mode: "verify", transactionRef, normPhone, quantity, existingCount });
+                if (webhookEvents.length > 200) webhookEvents.shift();
                 for (let i = existingCount; i < quantity; i += 1) {
                     const ticketId = await generateTicketId();
                     // eslint-disable-next-line no-await-in-loop
