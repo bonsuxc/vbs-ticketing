@@ -53,6 +53,11 @@ export default function Admin() {
 	const [verifying, setVerifying] = useState(false);
 	const [verifyResult, setVerifyResult] = useState("");
 	const [logs, setLogs] = useState([]);
+	const [resolveRef, setResolveRef] = useState("");
+	const [resolvePhone, setResolvePhone] = useState("");
+	const [resolveName, setResolveName] = useState("");
+	const [resolving, setResolving] = useState(false);
+	const [resolveResult, setResolveResult] = useState(null);
 
 	// QR scanning state
 	const [scanOpen, setScanOpen] = useState(false);
@@ -460,6 +465,37 @@ export default function Admin() {
 										</div>
 									</div>
 								) : null}
+							</div>
+							<div className="form-wrapper" style={{ maxWidth: 520 }}>
+								<h3 style={{ marginTop: 0 }}>Resolve Transaction (Status Check)</h3>
+								<form className="ticket-form" onSubmit={handleResolveTxn}>
+									<input
+										type="text"
+										placeholder="Client Reference from Hubtel"
+										value={resolveRef}
+										onChange={(e) => setResolveRef(e.target.value)}
+										required
+									/>
+									<input
+										type="text"
+										placeholder="Customer Phone (e.g. 233549111198)"
+										value={resolvePhone}
+										onChange={(e) => setResolvePhone(e.target.value)}
+										required
+									/>
+									<input
+										type="text"
+										placeholder="Customer Name (optional)"
+										value={resolveName}
+										onChange={(e) => setResolveName(e.target.value)}
+									/>
+									<button type="submit" disabled={resolving}>{resolving ? "Resolving..." : "Resolve & Issue Tickets"}</button>
+									{resolveResult ? (
+										<small style={{ color: "#e2e8f0" }}>
+											Status: {resolveResult.status || "Unknown"}; Resolved: {String(resolveResult.resolved)}; Created: {resolveResult.created || 0}
+										</small>
+									) : null}
+								</form>
 							</div>
 							<div className="form-wrapper" style={{ maxWidth: 520 }}>
 								<h3 style={{ marginTop: 0 }}>Create Manual Ticket</h3>

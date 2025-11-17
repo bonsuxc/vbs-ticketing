@@ -5,9 +5,15 @@
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: #0f172a;
   background: #ffffff;
+  width: 100%;
+  max-width: 100%;
 }
 
 html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
   overflow-x: hidden;
 }
 
@@ -109,6 +115,7 @@ html, body {
 }
 
 .ticket-form button {
+  width: 100%;
   padding: 12px 16px;
   font-size: 1rem;
   font-weight: 600;
@@ -216,6 +223,36 @@ html, body {
   }
 }
 
+@media (max-width: 600px) {
+  .hero-content {
+    padding: 12px;
+    grid-template-columns: 1fr;
+  }
+
+  .form-wrapper {
+    padding: 16px;
+  }
+
+  .ticket-preview-overlay {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .ticket-card {
+    max-width: 100%;
+  }
+
+  .ticket-qr-section {
+    align-items: stretch;
+  }
+
+  .ticket-qr-box {
+    width: 100%;
+    max-width: 260px;
+    margin: 0 auto;
+  }
+}
+
 .ticket-preview-page {
   min-height: 100svh;
   display: flex;
@@ -236,7 +273,7 @@ html, body {
 
 .ticket-preview-container {
   width: 100%;
-  max-width: 720px;
+  max-width: min(720px, 100%);
   display: flex;
   justify-content: center;
   padding: 8px;
