@@ -80,6 +80,11 @@ const HUBTEL_BASE_URL = "https://api.hubtel.com/v1/merchantaccount/merchants";
 const HUBTEL_RMP_BASE_URL = "https://rmp.hubtel.com/merchantaccount/merchants";
 const HUBTEL_MERCHANT_ID = process.env.HUBTEL_API_ID || "";
 const HUBTEL_API_KEY = process.env.HUBTEL_API_KEY || "";
+// Programmable API keys (Client ID / Secret). Fall back to merchant ID/API key if not set.
+const HUBTEL_CLIENT_ID = process.env.HUBTEL_CLIENT_ID || HUBTEL_MERCHANT_ID;
+const HUBTEL_CLIENT_SECRET = process.env.HUBTEL_CLIENT_SECRET || HUBTEL_API_KEY;
+const HUBTEL_CALLBACK_URL = process.env.HUBTEL_CALLBACK_URL || "";
+const HUBTEL_CANCELLATION_URL = process.env.HUBTEL_CANCELLATION_URL || "https://mywebsite.com/payment-cancelled";
 const HUBTEL_POS_SALES_ID = process.env.HUBTEL_POS_SALES_ID || "002032168";
 // Minimum amount required to issue tickets from Hubtel payments.
 // Defaults to 300 GHS if not explicitly set.
@@ -108,6 +113,72 @@ app.post("/api/admin/verify", requireAdmin, async (req, res) => {
     } catch (e) {
         console.error(e);
         return res.status(500).json({ ok: false, message: "Verification failed" });
+    }
+});
+
+// ------------------ HUBTEL PAYMENT INITIATION (ONLINE CHECKOUT) ------------------
+// This endpoint uses the Hubtel Programmable API keys (Client ID / Secret) to
+// initiate an Online Checkout payment. It expects the ticket to already exist
+// (with ticketId), and uses ticketId as the clientReference so that the
+// webhook can mark that same ticket as paid when payment succeeds.
+app.post("/api/payments/initiate", async (req, res) => {
+    try {
+        const { amount, ticketId } = req.body || {};
+        const amt = Number(amount || 0);
+        if (!Number.isFinite(amt) || amt <= 0) {
+            return res.status(400).json({ ok: false, error: "Invalid amount" });
+        }
+        if (!ticketId) {
+            return res.status(400).json({ ok: false, error: "ticketId is required" });
+        }
+
+        // Optional: ensure the ticket exists before initiating payment
+        // If your flow already guarantees this, you can skip this check.
+        try {
+            const existing = await prisma.payment.findUnique({ where: { ticketId } });
+            if (!existing) {
+                return res.status(404).json({ ok: false, error: "Ticket not found" });
+            }
+        } catch (e) {
+            console.error("Payment initiate: ticket lookup error", e?.message || e);
+            return res.status(500).json({ ok: false, error: "Ticket lookup failed" });
+        }
+
+        // Compute callback & cancellation URLs
+        const envBase = process.env.PUBLIC_BASE_URL ? String(process.env.PUBLIC_BASE_URL).replace(/\/$/, "") : "";
+        const hostBase = `${req.protocol}://${req.get("host")}`.replace(/\/$/, "");
+        const baseUrl = envBase || hostBase;
+        const callbackUrl = HUBTEL_CALLBACK_URL || `${baseUrl}/api/hubtel/webhook`;
+        const cancellationUrl = HUBTEL_CANCELLATION_URL || `${baseUrl}/payment-cancelled`;
+
+        const payload = {
+            amount: amt,
+            clientReference: ticketId,
+            description: "Ticket purchase",
+            callbackUrl,
+            cancellationUrl,
+        };
+
+        const url = "https://api.hubtel.com/v1/merchantaccount/onlinecheckout";
+        const response = await axios.post(url, payload, {
+            auth: {
+                username: HUBTEL_CLIENT_ID,
+                password: HUBTEL_CLIENT_SECRET,
+            },
+        });
+
+        const data = response.data || {};
+        const redirectUrl = data.checkoutUrl || data.checkouturl || data.redirectUrl || data.redirecturl || null;
+        if (!redirectUrl) {
+            return res.status(502).json({ ok: false, error: "Hubtel response missing checkout URL", hubtel: data });
+        }
+
+        return res.json({ ok: true, redirectUrl, callbackUrl, hubtel: data });
+    } catch (e) {
+        const status = e?.response?.status || 500;
+        const body = e?.response?.data;
+        console.error("Hubtel payments/initiate error", body || e.message);
+        return res.status(status).json({ ok: false, error: "Failed to initiate Hubtel payment", details: body || e.message });
     }
 });
 
@@ -515,9 +586,31 @@ app.get("/api/tickets/by-phone/:phone", async (req, res) => {
 // Configure your Hubtel dashboard to POST payment notifications to:
 //   https://<your-domain>/api/hubtel/webhook
 // This route re-verifies the transaction with Hubtel and issues a ticket automatically.
+const HUBTEL_WEBHOOK_SECRET = process.env.HUBTEL_WEBHOOK_SECRET || "";
+
+function verifyHubtelSignature(body, signature) {
+    if (!HUBTEL_WEBHOOK_SECRET) return true; // no secret configured; skip verification
+    if (!signature) return false;
+    try {
+        const payload = typeof body === "string" ? body : JSON.stringify(body || {});
+        const hmac = crypto.createHmac("sha256", HUBTEL_WEBHOOK_SECRET).update(payload, "utf8").digest("hex");
+        const a = Buffer.from(hmac, "hex");
+        const b = Buffer.from(String(signature), "hex");
+        if (a.length !== b.length) return false;
+        return crypto.timingSafeEqual(a, b);
+    } catch {
+        return false;
+    }
+}
+
 app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), async (req, res) => {
     try {
         const payload = req.body || {};
+        const signature = req.headers["x-hubtel-signature"] || req.headers["x-hubtel-signature-sha256"] || "";
+        const sigValid = verifyHubtelSignature(payload, signature);
+        if (!sigValid) {
+            console.warn("Hubtel webhook: invalid signature; payload will be ignored from update logic");
+        }
         // Hubtel payloads vary; try multiple fields
         const status = payload?.Status || payload?.status || payload?.Data?.status;
         const amount = Number(payload?.Amount || payload?.amount || payload?.Data?.amount || 0);
@@ -526,7 +619,18 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
             payload?.CustomerMsisdn || payload?.customerMsisdn || payload?.Customer?.Msisdn || payload?.customer?.phoneNumber || payload?.Data?.customer?.phoneNumber || ""
         ).trim();
 
-        webhookEvents.push({ ts: new Date().toISOString(), kind: "received", status, amount, transactionRef, customerPhone });
+        const clientReference =
+            payload?.clientReference || payload?.ClientReference || payload?.Reference || payload?.reference || null;
+
+        webhookEvents.push({
+            ts: new Date().toISOString(),
+            kind: "received",
+            status,
+            amount,
+            transactionRef,
+            clientReference,
+            customerPhone,
+        });
         if (webhookEvents.length > 200) webhookEvents.shift();
 
         // Acknowledge receipt immediately to avoid retries; continue work
@@ -539,6 +643,37 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
         }
 
         const TRUST = String(process.env.HUBTEL_WEBHOOK_TRUST || "").toLowerCase() === "true";
+        // If we trust the signature (or signature checking is disabled) and we have a
+        // direct clientReference that matches an existing ticketId, mark that ticket
+        // as paid and skip creating new Payment rows. This flow corresponds to the
+        // case where clientReference = ticketId.
+        if (sigValid && clientReference) {
+            try {
+                const existingTicket = await prisma.payment.findUnique({ where: { ticketId: clientReference } });
+                if (existingTicket) {
+                    const lower = String(status || "").toLowerCase();
+                    const isSuccess = ["success", "successful", "completed"].includes(lower);
+                    if (isSuccess && existingTicket.status !== "Paid") {
+                        await prisma.payment.update({
+                            where: { ticketId: clientReference },
+                            data: { status: "Paid" },
+                        });
+                        webhookEvents.push({
+                            ts: new Date().toISOString(),
+                            kind: "mark-paid-by-clientRef",
+                            clientReference,
+                        });
+                        if (webhookEvents.length > 200) webhookEvents.shift();
+                    }
+                    // In this flow, we do not auto-create new Payment rows since the
+                    // ticket already exists and is simply being marked as paid.
+                    return;
+                }
+            } catch (e) {
+                console.error("Webhook mark-paid-by-clientRef error", e?.message || e);
+            }
+        }
+
         if (TRUST) {
             // Trust-callback mode: do not call Hubtel, rely on payload
             try {
