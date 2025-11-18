@@ -50,6 +50,14 @@ function generateAccessCode() {
     }
     return code;
 }
+function generateClientReference() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // alphanumeric, no ambiguous
+    let out = "";
+    for (let i = 0; i < 18; i += 1) {
+        out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out; // length <= 36 as required by Hubtel
+}
 const ADMIN_KEY = process.env.ADMIN_KEY || "VBSAdmin#8372";
 const webhookEvents = [];
 
@@ -68,6 +76,8 @@ async function generateTicketId() {
 
 // ------------------ HUBTEL CONFIG ------------------
 const HUBTEL_BASE_URL = "https://api.hubtel.com/v1/merchantaccount/merchants";
+// Direct Receive Money (RMP) base URL – POS Sales ID is appended per transaction
+const HUBTEL_RMP_BASE_URL = "https://rmp.hubtel.com/merchantaccount/merchants";
 const HUBTEL_MERCHANT_ID = process.env.HUBTEL_API_ID || "";
 const HUBTEL_API_KEY = process.env.HUBTEL_API_KEY || "";
 const HUBTEL_POS_SALES_ID = process.env.HUBTEL_POS_SALES_ID || "002032168";
@@ -118,10 +128,12 @@ app.post("/api/hubtel/checkout", async (req, res) => {
         const baseUrl = envBase || hostBase;
         const callbackUrl = callbackUrlOverride || `${baseUrl}/api/hubtel/webhook`;
 
+        const clientReference = generateClientReference();
         const payload = {
             amount: amt,
             description: description || "VBS Ticket Payment",
             callbackUrl,
+            clientReference,
             // Depending on your Hubtel product, these fields may differ slightly;
             // we include common ones here.
             customerName: customerName || undefined,
@@ -136,12 +148,124 @@ app.post("/api/hubtel/checkout", async (req, res) => {
             },
         });
 
-        return res.json({ ok: true, callbackUrl, hubtel: response.data });
+        return res.json({ ok: true, callbackUrl, clientReference, hubtel: response.data });
     } catch (e) {
         const status = e?.response?.status || 500;
         const body = e?.response?.data;
-        console.error("Hubtel checkout create error", body || e.message);
-        return res.status(status).json({ ok: false, error: "Failed to create Hubtel Online Checkout", details: body || e.message });
+        if (status === 403) {
+            console.error("Hubtel checkout create error (possible IP not whitelisted)", body || e.message);
+        } else {
+            console.error("Hubtel checkout create error", body || e.message);
+        }
+        const responseCode = body?.responseCode;
+        let hint;
+        switch (responseCode) {
+            case "2001":
+                hint = "Duplicate or invalid clientReference";
+                break;
+            case "4000":
+                hint = "Bad request to Hubtel API";
+                break;
+            case "4070":
+                hint = "Authentication or authorization error";
+                break;
+            case "4101":
+            case "4103":
+                hint = "Transaction cannot be processed in current state";
+                break;
+            default:
+                hint = undefined;
+        }
+        return res.status(status).json({
+            ok: false,
+            error: "Failed to create Hubtel Online Checkout",
+            details: body || e.message,
+            responseCode,
+            hint,
+            ipWhitelistNote: status === 403 ? "Your server IP may not be whitelisted on Hubtel" : undefined,
+        });
+    }
+});
+
+// ------------------ HUBTEL DIRECT RECEIVE MONEY (RMP) ------------------
+// Initiates a Direct Receive Money transaction using the RMP API. This is suitable
+// for USSD or push-collect flows where you know the customer's phone and channel.
+// It MUST be called from your whitelisted server IP.
+app.post("/api/hubtel/direct-receive", async (req, res) => {
+    try {
+        const { amount, channel, customerMsisdn, customerName, description, callbackUrlOverride } = req.body || {};
+        const amt = Number(amount || 0);
+        if (!Number.isFinite(amt) || amt <= 0) {
+            return res.status(400).json({ ok: false, error: "amount must be a positive number" });
+        }
+        if (!channel) {
+            return res.status(400).json({ ok: false, error: "channel is required (e.g. mtn-gh, vodafone-gh)" });
+        }
+        if (!customerMsisdn) {
+            return res.status(400).json({ ok: false, error: "customerMsisdn is required" });
+        }
+
+        const normPhone = normalizePhoneGH(customerMsisdn);
+        const envBase = process.env.PUBLIC_BASE_URL ? String(process.env.PUBLIC_BASE_URL).replace(/\/$/, "") : "";
+        const hostBase = `${req.protocol}://${req.get("host")}`.replace(/\/$/, "");
+        const baseUrl = envBase || hostBase;
+        const primaryCallbackUrl = callbackUrlOverride || `${baseUrl}/api/hubtel/direct-receive/callback`;
+
+        const clientReference = generateClientReference();
+        const payload = {
+            CustomerName: customerName || "",
+            CustomerMsisdn: normPhone,
+            Channel: channel,
+            Amount: amt,
+            PrimaryCallbackURL: primaryCallbackUrl,
+            Description: description || "VBS Ticket Payment",
+            ClientReference: clientReference,
+        };
+
+        const url = `${HUBTEL_RMP_BASE_URL}/${encodeURIComponent(HUBTEL_POS_SALES_ID)}/receive/mobilemoney`;
+        const response = await axios.post(url, payload, {
+            auth: {
+                username: HUBTEL_MERCHANT_ID,
+                password: HUBTEL_API_KEY,
+            },
+        });
+
+        return res.json({ ok: true, clientReference, callbackUrl: primaryCallbackUrl, hubtel: response.data });
+    } catch (e) {
+        const status = e?.response?.status || 500;
+        const body = e?.response?.data;
+        if (status === 403) {
+            console.error("Hubtel Direct Receive error (possible IP not whitelisted)", body || e.message);
+        } else {
+            console.error("Hubtel Direct Receive error", body || e.message);
+        }
+        const responseCode = body?.responseCode;
+        let hint;
+        switch (responseCode) {
+            case "2001":
+                hint = "Duplicate or invalid ClientReference";
+                break;
+            case "4000":
+                hint = "Bad request to Hubtel API";
+                break;
+            case "4070":
+                hint = "Authentication or authorization error";
+                break;
+            case "4101":
+            case "4103":
+                hint = "Transaction cannot be processed in current state";
+                break;
+            default:
+                hint = undefined;
+        }
+        return res.status(status).json({
+            ok: false,
+            error: "Failed to initiate Hubtel Direct Receive Money",
+            details: body || e.message,
+            responseCode,
+            hint,
+            ipWhitelistNote: status === 403 ? "Your server IP may not be whitelisted on Hubtel" : undefined,
+        });
     }
 });
 
@@ -259,8 +383,38 @@ app.get("/api/hubtel/txn-status", async (req, res) => {
     } catch (e) {
         const status = e?.response?.status || 500;
         const body = e?.response?.data;
-        console.error("Hubtel txn-status API error", body || e.message);
-        return res.status(status).json({ ok: false, error: "Failed to call Hubtel Transaction Status API", details: body || e.message });
+        if (status === 403) {
+            console.error("Hubtel txn-status API error (possible IP not whitelisted)", body || e.message);
+        } else {
+            console.error("Hubtel txn-status API error", body || e.message);
+        }
+        const responseCode = body?.responseCode;
+        let hint;
+        switch (responseCode) {
+            case "2001":
+                hint = "Duplicate or invalid clientReference";
+                break;
+            case "4000":
+                hint = "Bad request to Hubtel API";
+                break;
+            case "4070":
+                hint = "Authentication or authorization error";
+                break;
+            case "4101":
+            case "4103":
+                hint = "Transaction cannot be processed in current state";
+                break;
+            default:
+                hint = undefined;
+        }
+        return res.status(status).json({
+            ok: false,
+            error: "Failed to call Hubtel Transaction Status API",
+            details: body || e.message,
+            responseCode,
+            hint,
+            ipWhitelistNote: status === 403 ? "Your server IP may not be whitelisted on Hubtel" : undefined,
+        });
     }
 });
 
@@ -488,6 +642,98 @@ app.post("/api/hubtel/webhook", express.json({ type: "application/json" }), asyn
         // If parsing fails, still acknowledge to avoid repeated retries
         try { res.status(200).json({ ok: true }); } catch {}
         console.error("Webhook handler error", e?.message);
+    }
+});
+
+// ------------------ HUBTEL DIRECT RECEIVE CALLBACK ------------------
+// Configure Hubtel Direct Receive (RMP) PrimaryCallbackURL to point to:
+//   https://<your-domain>/api/hubtel/direct-receive/callback
+// This handler trusts the callback payload (ResponseCode/Amount) and issues
+// tickets in the same way as the webhook TRUST branch, guarded by reference.
+app.post("/api/hubtel/direct-receive/callback", express.json({ type: "application/json" }), async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const responseCode = payload?.ResponseCode || payload?.responseCode;
+        const amount = Number(payload?.Amount || payload?.amount || 0);
+        const clientReference = payload?.ClientReference || payload?.clientReference;
+        const customerPhone = String(
+            payload?.CustomerMsisdn || payload?.customerMsisdn || payload?.Customer?.Msisdn || payload?.customer?.phoneNumber || ""
+        ).trim();
+        const customerName = String(payload?.CustomerName || payload?.customerName || payload?.Customer?.Name || payload?.customer?.name || "");
+
+        webhookEvents.push({
+            ts: new Date().toISOString(),
+            kind: "direct-receive-callback",
+            responseCode,
+            amount,
+            clientReference,
+            customerPhone,
+        });
+        if (webhookEvents.length > 200) webhookEvents.shift();
+
+        // Always acknowledge receipt immediately
+        res.status(200).json({ ok: true });
+
+        if (!clientReference) {
+            console.warn("Direct Receive callback missing ClientReference", payload);
+            return;
+        }
+        if (responseCode !== "0000") {
+            console.warn("Direct Receive callback not successful", { responseCode, clientReference });
+            return;
+        }
+
+        const amt = Number.isFinite(amount) ? amount : 0;
+        if (!Number.isFinite(amt) || amt < MIN_TICKET_AMOUNT) {
+            console.warn("Direct Receive amount below ticket threshold", { amt, minAmount: MIN_TICKET_AMOUNT });
+            return;
+        }
+
+        const normPhone = normalizePhoneGH(customerPhone);
+        if (!normPhone) {
+            console.warn("Direct Receive callback missing/invalid phone; skipping ticket issue");
+            return;
+        }
+
+        const unitPrice = 300;
+        const quantity = Math.floor(amt / unitPrice);
+        if (quantity < 1) return;
+
+        try {
+            const existingCount = await prisma.payment.count({ where: { reference: clientReference } });
+            webhookEvents.push({
+                ts: new Date().toISOString(),
+                kind: "process-direct-receive",
+                clientReference,
+                normPhone,
+                quantity,
+                existingCount,
+            });
+            if (webhookEvents.length > 200) webhookEvents.shift();
+
+            for (let i = existingCount; i < quantity; i += 1) {
+                const ticketId = await generateTicketId();
+                // eslint-disable-next-line no-await-in-loop
+                await prisma.payment.create({
+                    data: {
+                        name: customerName,
+                        phone: normPhone,
+                        amount: unitPrice,
+                        status: "Paid",
+                        reference: clientReference,
+                        ticketType: "Regular",
+                        ticketId,
+                        eventDate: "Dec 27, 2025",
+                        accessCode: generateAccessCode(),
+                    },
+                });
+            }
+        } catch (err) {
+            console.error("Direct Receive callback ticket issue error", err?.message || err);
+        }
+    } catch (e) {
+        try { res.status(200).json({ ok: true }); } catch {}
+        console.error("Direct Receive callback handler error", e?.message || e);
     }
 });
 

@@ -58,6 +58,12 @@ export default function Admin() {
 	const [resolveName, setResolveName] = useState("");
 	const [resolving, setResolving] = useState(false);
 	const [resolveResult, setResolveResult] = useState(null);
+	const [directAmount, setDirectAmount] = useState(300);
+	const [directChannel, setDirectChannel] = useState("mtn-gh");
+	const [directPhone, setDirectPhone] = useState("");
+	const [directName, setDirectName] = useState("");
+	const [directLoading, setDirectLoading] = useState(false);
+	const [directResult, setDirectResult] = useState(null);
 
 	// QR scanning state
 	const [scanOpen, setScanOpen] = useState(false);
@@ -99,6 +105,42 @@ export default function Admin() {
 			}
 		} finally {
 			setLoading(false);
+		}
+	}
+
+	async function handleDirectReceive(e) {
+		e.preventDefault();
+		setError("");
+		setDirectResult(null);
+		const amt = Number(directAmount || 0);
+		if (!Number.isFinite(amt) || amt <= 0) {
+			setError("Amount must be a positive number");
+			return;
+		}
+		if (!directPhone) {
+			setError("Customer phone is required");
+			return;
+		}
+		try {
+			setDirectLoading(true);
+			const body = {
+				amount: amt,
+				channel: directChannel,
+				customerMsisdn: directPhone.trim(),
+				customerName: directName.trim() || undefined,
+			};
+			const res = await api("/api/hubtel/direct-receive", "POST", body, adminKey);
+			setDirectResult(res || {});
+		} catch (e) {
+			if (e.status === 401) {
+				localStorage.removeItem(ADMIN_KEY_STORAGE);
+				setAdminKey("");
+				setError("Session expired. Please sign in again.");
+			} else {
+				setError(e.message || "Direct Receive initiation failed");
+			}
+		} finally {
+			setDirectLoading(false);
 		}
 	}
 
