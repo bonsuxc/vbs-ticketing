@@ -64,6 +64,18 @@ export default function ViewTicket() {
     </div>
   );
 
+  const ticketType = ticket?.ticketType || "Regular";
+  let ticketStatus = (ticket?.status || "Paid").toString();
+  if (ticket?.used) {
+    ticketStatus = "Used";
+  }
+  const statusLower = ticketStatus.toLowerCase();
+  let statusClass = "ticket-status-pill";
+  if (statusLower.includes("paid") || statusLower.includes("success")) statusClass += " ticket-status-pill--paid";
+  else if (statusLower.includes("pending")) statusClass += " ticket-status-pill--pending";
+  else if (statusLower.includes("cancel") || statusLower.includes("invalid")) statusClass += " ticket-status-pill--cancelled";
+  const typeClass = `ticket-type-pill ${ticketType === "VIP" ? "ticket-type-pill--vip" : "ticket-type-pill--regular"}`;
+
   return (
     <div className="ticket-preview-page" style={{ backgroundImage: `url(${hero})` }}>
       <div className="ticket-preview-overlay">
@@ -96,6 +108,13 @@ export default function ViewTicket() {
 
             {ticket ? (
               <>
+                <div className="ticket-badges-row" style={{ marginBottom: 8 }}>
+                  <span className={typeClass}>{ticketType}</span>
+                  <span className={statusClass}>
+                    <span className="ticket-status-dot" />
+                    {ticketStatus}
+                  </span>
+                </div>
                 <div className="ticket-grid">
                   <Info label="Full Name" value={ticket.name} />
                   <Info label="Phone Number" value={ticket.phone} />
