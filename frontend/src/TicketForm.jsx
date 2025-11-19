@@ -8,12 +8,6 @@ export default function TicketForm() {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState("");
     const [polling, setPolling] = useState(false);
-    const [directAmount, setDirectAmount] = useState(300);
-    const [directChannel, setDirectChannel] = useState("mtn-gh");
-    const [directPhone, setDirectPhone] = useState("");
-    const [directName, setDirectName] = useState("");
-    const [directLoading, setDirectLoading] = useState(false);
-    const [directResult, setDirectResult] = useState(null);
 
     const ussdTelLink = useMemo(() => "tel:*713*7674%23", []);
     const ussdDisplay = useMemo(() => "*713*7674#", []);
@@ -24,45 +18,6 @@ export default function TicketForm() {
             .then(setQrDataUrl)
             .catch(() => setQrDataUrl(""));
     }, [ussdTelLink]);
-
-    async function handleDirectReceive(e) {
-        e.preventDefault();
-        setDirectResult(null);
-        const amt = Number(directAmount || 0);
-        if (!Number.isFinite(amt) || amt <= 0) {
-            setMessage("Amount must be a positive number");
-            return;
-        }
-        if (!directPhone) {
-            setMessage("Please enter your phone number for the payment request");
-            return;
-        }
-        try {
-            setDirectLoading(true);
-            const base = (typeof window !== "undefined" && (import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || window.location.origin)) || "";
-            const body = {
-                amount: amt,
-                channel: directChannel,
-                customerMsisdn: directPhone.trim(),
-                customerName: directName.trim() || undefined,
-            };
-            const res = await fetch(`${base}/api/hubtel/direct-receive`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-            });
-            const json = await res.json().catch(() => undefined);
-            if (!res.ok) {
-                throw new Error(json?.error || json?.message || "Direct Receive initiation failed");
-            }
-            setDirectResult(json || {});
-            setMessage("");
-        } catch (err) {
-            setDirectResult({ ok: false, error: err.message });
-        } finally {
-            setDirectLoading(false);
-        }
-    }
 
     async function lookupByPhone(e) {
         e?.preventDefault?.();
@@ -131,51 +86,6 @@ export default function TicketForm() {
                 <small style={{ color: "#e2e8f0", textAlign: "center" }}>
                     After paying GHS 300 or above, enter your phone below to view your ticket(s).
                 </small>
-            </div>
-
-            <div className="form-wrapper" style={{ marginTop: 16 }}>
-                <h3 style={{ marginTop: 0 }}>Alternative: Receive Payment Request</h3>
-                <form className="ticket-form" onSubmit={handleDirectReceive}>
-                    <input
-                        type="number"
-                        min={1}
-                        placeholder="Amount (GHS)"
-                        value={directAmount}
-                        onChange={(e) => setDirectAmount(e.target.value)}
-                        required
-                    />
-                    <select value={directChannel} onChange={(e) => setDirectChannel(e.target.value)}>
-                        <option value="mtn-gh">MTN</option>
-                        <option value="vodafone-gh">Vodafone</option>
-                        <option value="airtel-gh">AirtelTigo</option>
-                    </select>
-                    <input
-                        type="text"
-                        placeholder="Your Phone Number (e.g. 0241234567)"
-                        value={directPhone}
-                        onChange={(e) => setDirectPhone(e.target.value)}
-                        required
-                    />
-                    <input
-                        type="text"
-                        placeholder="Your Name (optional)"
-                        value={directName}
-                        onChange={(e) => setDirectName(e.target.value)}
-                    />
-                    <button type="submit" disabled={directLoading}>
-                        {directLoading ? "Starting..." : "Request Payment"}
-                    </button>
-                    {directResult?.ok && directResult.clientReference ? (
-                        <small style={{ color: "#a7f3d0" }}>
-                            Payment request started. Client Reference: {directResult.clientReference}. Follow the prompt from Hubtel/your network to approve the payment.
-                        </small>
-                    ) : null}
-                    {directResult && !directResult?.ok ? (
-                        <small style={{ color: "#fecaca" }}>
-                            {directResult.error || "Direct Receive failed"}
-                        </small>
-                    ) : null}
-                </form>
             </div>
 
             <form className="ticket-form" onSubmit={lookupByPhone} style={{ marginTop: 16 }}>
