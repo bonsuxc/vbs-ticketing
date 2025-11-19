@@ -725,6 +725,29 @@ html, body {
   cursor: pointer;
 }
 
+@media (max-width: 640px) {
+  .qr-scanner-overlay {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .scanner-frame {
+    width: 220px;
+    height: 220px;
+    border-radius: 28px;
+  }
+
+  .scan-hint {
+    top: 48px;
+    font-size: 14px;
+    padding: 8px 14px;
+  }
+
+  .flash-btn {
+    bottom: 80px;
+  }
+}
+
 @media (max-width: 480px) {
   .hero-content {
     padding: 12px !important;

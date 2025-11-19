@@ -52,6 +52,7 @@ export default function Admin() {
 	const [verifyCode, setVerifyCode] = useState("");
 	const [verifying, setVerifying] = useState(false);
 	const [verifyResult, setVerifyResult] = useState("");
+	const [lastAutoVerifiedCode, setLastAutoVerifiedCode] = useState("");
 	const [logs, setLogs] = useState([]);
 	const [resolveRef, setResolveRef] = useState("");
 	const [resolvePhone, setResolvePhone] = useState("");
@@ -164,6 +165,20 @@ export default function Admin() {
 			setVerifying(false);
 		}
 	}
+
+	// Auto-verify when a full ticket code is present (e.g. from scan or paste),
+	// so the admin does not have to press the Verify button explicitly.
+	useEffect(() => {
+		if (!verifyCode || verifying) return;
+		const cleaned = verifyCode.trim().toUpperCase();
+		// Basic pattern: VBS- + at least 4 more alphanumeric chars
+		if (!/^VBS-[A-Z0-9]{4,}$/.test(cleaned)) return;
+		if (cleaned === lastAutoVerifiedCode) return;
+		setLastAutoVerifiedCode(cleaned);
+		// Fire verify without requiring button press
+		// eslint-disable-next-line no-floating-promises
+		handleVerify();
+	}, [verifyCode, verifying, lastAutoVerifiedCode]);
 
 	function extractTicketIdFromText(text) {
 		if (!text) return "";
@@ -419,7 +434,7 @@ export default function Admin() {
 							<button className="sign-out-button" type="button" onClick={handleLogout}>
 								Sign out
 							</button>
-							<div style={{ display: "flex", gap: 8, margin: "12px 0" }}>
+							<div style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
 								<button onClick={() => setActiveTab("manage")}>Manage</button>
 								<button onClick={() => setActiveTab("verify")}>Verify Ticket</button>
 							</div>
