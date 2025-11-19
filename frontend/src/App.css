@@ -227,10 +227,16 @@ html, body {
   .hero-content {
     padding: 12px;
     grid-template-columns: 1fr;
+    width: 100%;
+    max-width: 100%;
   }
 
   .form-wrapper {
     padding: 16px;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
   }
 
   .ticket-preview-overlay {
@@ -631,12 +637,18 @@ html, body {
   .ticket-grid { grid-template-columns: 1fr; }
   .ticket-qr-box { width: min(200px, 65vw); }
   .hero { width: 100%; min-height: 100svh; }
-  .hero-content { padding: 16px; max-width: 100%; }
+  .hero-content {
+    padding: 16px;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
   /* On iOS/Safari, backdrop-filter can create a half-screen white artifact.
      Disable blur and use a solid translucent dark background on small screens. */
   .form-wrapper {
     width: 100%;
-    margin: 0;
+    margin: 8px 0;
     background: rgba(15,23,42,0.88);
     border: 1px solid rgba(148,163,184,0.25);
     backdrop-filter: none;
