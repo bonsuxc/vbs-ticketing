@@ -47,6 +47,7 @@ export default function Admin() {
 	const [phone, setPhone] = useState("");
 	const [ticketType, setTicketType] = useState("Regular");
 	const [paymentStatus, setPaymentStatus] = useState("Paid");
+	const [ticketCount, setTicketCount] = useState(1);
 
 	const [activeTab, setActiveTab] = useState("manage");
 	const [verifyCode, setVerifyCode] = useState("");
@@ -313,17 +314,39 @@ export default function Admin() {
 		e.preventDefault();
 		setError("");
 		try {
+			// Validate input
+			if (!name || !phone) {
+				setError("Name and phone are required");
+				return;
+			}
+
+			const count = Math.max(1, Math.min(50, parseInt(ticketCount) || 1));
+			if (count > 50) {
+				setError("Maximum 50 tickets at once");
+				return;
+			}
+
 			setLoading(true);
-			await api(
-				"/api/admin/create",
-				"POST",
-				{ name, phone, amount, status: paymentStatus, ticketType },
-				adminKey
+
+			// Create an array of ticket creation promises
+			const createPromises = Array(count).fill().map(() => 
+				api(
+					"/api/admin/create",
+					"POST",
+					{ name, phone, amount, status: paymentStatus, ticketType },
+					adminKey
+				)
 			);
+
+			// Wait for all tickets to be created
+			const results = await Promise.all(createPromises);
+
+			// Reset form and show success message
 			setName("");
 			setPhone("");
+			setTicketCount(1);
 			await refresh();
-			alert("Ticket created successfully!");
+			alert(`Successfully created ${results.length} ticket${results.length !== 1 ? 's' : ''}!`);
 		} catch (e) {
 			if (e.status === 401) {
 				localStorage.removeItem(ADMIN_KEY_STORAGE);
@@ -596,6 +619,17 @@ export default function Admin() {
 										<option>Regular</option>
 										<option>VIP</option>
 									</select>
+									<div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+										<input
+											type="number"
+											min="1"
+											max="50"
+											value={ticketCount}
+											onChange={(e) => setTicketCount(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+											style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #4a5568' }}
+										/>
+										<span style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>tickets</span>
+									</div>
 									<select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
 										<option>Paid</option>
 										<option>Unpaid</option>
