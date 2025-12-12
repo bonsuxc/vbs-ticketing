@@ -1049,10 +1049,6 @@ app.post("/api/admin/create", requireAdmin, async (req, res) => {
         if (!name || !phone || typeof amount !== "number") {
             return res.status(400).json({ error: "name, phone, amount are required" });
         }
-        const exists = await prisma.payment.findFirst({ where: { phone } });
-        if (exists) {
-            return res.status(409).json({ error: "This number already has a ticket." });
-        }
         const ticketTypeValue = ticketType || "Regular";
         const ticketId = await generateTicketId();
         const created = await prisma.payment.create({

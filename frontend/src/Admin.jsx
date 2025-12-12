@@ -45,9 +45,9 @@ export default function Admin() {
 
 	const [name, setName] = useState("");
 	const [phone, setPhone] = useState("");
+	const [names, setNames] = useState("");
 	const [ticketType, setTicketType] = useState("Regular");
 	const [paymentStatus, setPaymentStatus] = useState("Paid");
-	const [ticketCount, setTicketCount] = useState(1);
 
 	const [activeTab, setActiveTab] = useState("manage");
 	const [verifyCode, setVerifyCode] = useState("");
@@ -314,14 +314,19 @@ export default function Admin() {
 		e.preventDefault();
 		setError("");
 		try {
+			// Process names - split by newline and filter out empty lines
+			const nameList = names
+				.split('\n')
+				.map(name => name.trim())
+				.filter(name => name.length > 0);
+
 			// Validate input
-			if (!name || !phone) {
-				setError("Name and phone are required");
+			if (nameList.length === 0 || !phone) {
+				setError("Please enter at least one name and a phone number");
 				return;
 			}
 
-			const count = Math.max(1, Math.min(50, parseInt(ticketCount) || 1));
-			if (count > 50) {
+			if (nameList.length > 50) {
 				setError("Maximum 50 tickets at once");
 				return;
 			}
@@ -329,7 +334,7 @@ export default function Admin() {
 			setLoading(true);
 
 			// Create an array of ticket creation promises
-			const createPromises = Array(count).fill().map(() => 
+			const createPromises = nameList.map(name => 
 				api(
 					"/api/admin/create",
 					"POST",
@@ -342,9 +347,8 @@ export default function Admin() {
 			const results = await Promise.all(createPromises);
 
 			// Reset form and show success message
-			setName("");
+			setNames("");
 			setPhone("");
-			setTicketCount(1);
 			await refresh();
 			alert(`Successfully created ${results.length} ticket${results.length !== 1 ? 's' : ''}!`);
 		} catch (e) {
@@ -601,16 +605,16 @@ export default function Admin() {
 							<div className="form-wrapper" style={{ maxWidth: 520 }}>
 								<h3 style={{ marginTop: 0 }}>Create Manual Ticket</h3>
 								<form className="ticket-form" onSubmit={handleCreate}>
-									<input
-										type="text"
-										placeholder="Full Name"
-										value={name}
-										onChange={(e) => setName(e.target.value)}
+									<textarea
+										placeholder="Enter names, one per line"
+										value={names}
+										onChange={(e) => setNames(e.target.value)}
+										style={{ minHeight: '100px', padding: '8px', borderRadius: '4px', border: '1px solid #4a5568', width: '100%' }}
 										required
 									/>
 									<input
 										type="text"
-										placeholder="Phone Number"
+										placeholder="Phone Number (shared for all tickets)"
 										value={phone}
 										onChange={(e) => setPhone(e.target.value)}
 										required
@@ -619,17 +623,6 @@ export default function Admin() {
 										<option>Regular</option>
 										<option>VIP</option>
 									</select>
-									<div style={{ display: 'flex', gap: '8px', width: '100%' }}>
-										<input
-											type="number"
-											min="1"
-											max="50"
-											value={ticketCount}
-											onChange={(e) => setTicketCount(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
-											style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #4a5568' }}
-										/>
-										<span style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>tickets</span>
-									</div>
 									<select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
 										<option>Paid</option>
 										<option>Unpaid</option>
