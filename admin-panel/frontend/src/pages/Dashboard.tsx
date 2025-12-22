@@ -1,45 +1,66 @@
 import { useState, useEffect } from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, BarChart, Bar } from "recharts";
 import dayjs from "dayjs";
-import { FiDollarSign, FiUsers, FiCalendar, FiCheckCircle, FiAlertCircle, FiDownload, FiClock } from "react-icons/fi";
+import { 
+  FiDollarSign, 
+  FiUsers, 
+  FiCalendar, 
+  FiCheckCircle, 
+  FiAlertCircle, 
+  FiDownload, 
+  FiClock,
+  FiCreditCard,
+  FiTrendingUp,
+  FiRefreshCw,
+  FiActivity,
+  FiBarChart2
+} from "react-icons/fi";
 import { mockDashboardData } from "../mockData";
+
+// Format currency in Ghana Cedis
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('en-GH', {
+    style: 'currency',
+    currency: 'GHS',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+};
 
 const chartPalette = ["#6366f1", "#22d3ee", "#fbbf24", "#f472b6", "#10b981"];
 
 export function DashboardPage() {
-	const [data, setData] = useState(mockDashboardData);
-	const [isLoading, setIsLoading] = useState(false);
-	const [timeRange, setTimeRange] = useState<'7days' | '30days'>('7days');
+  const [data, setData] = useState(mockDashboardData);
+  const [isLoading, setIsLoading] = useState(false);
+  const [timeRange, setTimeRange] = useState<'7days' | '30days'>('7days');
+  const [activeTab, setActiveTab] = useState<'overview' | 'recent' | 'analytics'>('overview');
 
-	// In a real app, you would fetch data here
-	useEffect(() => {
-		// Simulate loading
-		setIsLoading(true);
-		const timer = setTimeout(() => {
-			setIsLoading(false);
-		}, 500);
-		return () => clearTimeout(timer);
-	}, [timeRange]);
+  // In a real app, you would fetch data here
+  useEffect(() => {
+    // Simulate loading
+    setIsLoading(true);
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 500);
 
-	// Filter sales data based on selected time range
-	const filteredSalesData = timeRange === '7days' 
-		? data.salesTrend.slice(-7) 
-		: data.salesTrend;
+    return () => clearTimeout(timer);
+  }, [timeRange]);
 
-	const salesData = filteredSalesData.map(item => ({
-		...item,
-		tickets: item.tickets ?? 0,
-	}));
+  // Filter sales data based on selected time range
+  const filteredSalesData = timeRange === '7days' 
+    ? data.salesTrend.slice(-7) 
+    : data.salesTrend;
 
-const ticketSummary = [
-	{ name: "Paid", value: data.paidTickets },
-	{ name: "Pending", value: data.pendingPayments },
-];
+  const salesData = filteredSalesData.map(item => ({
+    ...item,
+    tickets: item.tickets ?? 0,
+  }));
 
-const recentActivities = [
-	{ id: 1, type: 'payment', user: 'John Doe', amount: 50, status: 'completed', time: '2 min ago' },
-	{ id: 2, type: 'ticket', user: 'Jane Smith', event: 'VBS 2025', status: 'checked-in', time: '10 min ago' },
-	{ id: 3, type: 'payment', user: 'Mike Johnson', amount: 30, status: 'pending', time: '25 min ago' },
+  // Ticket summary data
+  const ticketSummary = [
+    { name: "Paid", value: data.paidTickets },
+    { name: "Pending", value: data.pendingPayments },
+  ];
 	{ id: 4, type: 'refund', user: 'Sarah Williams', amount: 25, status: 'completed', time: '1 hour ago' },
 ];
 
@@ -328,47 +349,81 @@ const recentActivities = [
 	);
 }
 
-function StatCard({ 
-	title, 
-	value, 
-	subtitle, 
-	trend, 
-	trendType = 'up',
-	icon
-}: { 
-	title: string; 
-	value: string | number; 
-	subtitle?: string;
-	trend?: string;
-	trendType?: 'up' | 'down';
-	icon?: React.ReactNode;
-}) {
-	const trendColor = trendType === 'up' ? 'text-green-500' : 'text-red-500';
-	const trendIcon = trendType === 'up' ? '↑' : '↓';
+interface StatCardProps {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  trend?: string;
+  trendType?: 'up' | 'down';
+  icon?: React.ReactNode;
+  className?: string;
+  loading?: boolean;
+}
 
-	return (
-		<div className="rounded-2xl bg-white p-6 shadow-sm border border-gray-100">
-			<div className="flex items-center justify-between">
-				<div className="flex items-center space-x-3">
-					{icon && (
-						<div className="p-2 rounded-lg bg-indigo-50">
-							{icon}
-						</div>
-					)}
-					<dt className="text-sm font-medium text-slate-500">{title}</dt>
-				</div>
-				{trend && (
-					<span className={`text-xs font-medium ${trendColor}`}>
-						{trendIcon} {trend}
-					</span>
-				)}
-			</div>
-			<dd className="mt-3 text-2xl font-semibold text-slate-900">{value}</dd>
-			{subtitle && (
-				<dd className="mt-1 text-sm text-slate-500">{subtitle}</dd>
-			)}
-		</div>
-	);
+function StatCard({ 
+  title, 
+  value, 
+  subtitle, 
+  trend, 
+  trendType = 'up',
+  icon,
+  className = '',
+  loading = false
+}: StatCardProps) {
+  if (loading) {
+    return (
+      <div className={`bg-white p-5 rounded-xl shadow-sm border border-gray-100 ${className}`}>
+        <div className="animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+          <div className="h-8 bg-gray-200 rounded w-1/2 mb-2"></div>
+          {subtitle && <div className="h-3 bg-gray-100 rounded w-2/3"></div>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`bg-white p-5 rounded-xl shadow-sm border border-gray-100 transition-all hover:shadow-md ${className}`}>
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-slate-500 mb-1">{title}</p>
+          <div className="flex items-baseline space-x-2">
+            <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
+            {trend && (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                trendType === 'up' 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {trendType === 'up' ? (
+                  <svg className="-ml-0.5 mr-0.5 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg className="-ml-0.5 mr-0.5 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {trend}
+              </span>
+            )}
+          </div>
+          {subtitle && (
+            <p className="mt-1 text-xs text-slate-500">
+              {subtitle}
+            </p>
+          )}
+        </div>
+        {icon && (
+          <div className="ml-4 flex-shrink-0">
+            <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+              {icon}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
 function Skeleton() {
