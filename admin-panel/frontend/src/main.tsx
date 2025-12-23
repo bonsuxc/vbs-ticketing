@@ -11,6 +11,7 @@ import { EventsPage } from "./pages/Events.tsx";
 import { PaymentsPage } from "./pages/Payments.tsx";
 import { UsersPage } from "./pages/Users.tsx";
 import { SettingsPage } from "./pages/Settings.tsx";
+import AdminPage from "./pages/Admin.tsx";
 import { ProtectedRoute } from "./components/ProtectedRoute.tsx";
 import { AdminLayout, PublicLayout } from "./layouts/AdminLayout.tsx";
 import { queryClient } from "./lib/queryClient.ts";
@@ -33,6 +34,7 @@ createRoot(document.getElementById("root")!).render(
 								<Route path="/payments" element={<PaymentsPage />} />
 								<Route path="/users" element={<UsersPage />} />
 								<Route path="/settings" element={<SettingsPage />} />
+								<Route path="/admin" element={<AdminPage />} />
 							</Route>
 						</Route>
 					</Route>
