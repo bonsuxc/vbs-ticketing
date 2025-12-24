@@ -5,3 +5,61 @@
 body {
 	@apply bg-slate-50 text-slate-800;
 }
+
+@media print {
+	@page {
+		size: A4 portrait;
+		margin: 0.5cm;
+	}
+
+	body * {
+		visibility: hidden;
+	}
+
+	.print-ticket,
+	.print-ticket * {
+		visibility: visible;
+	}
+
+	.print-ticket {
+		position: absolute;
+		left: 0;
+		top: 0;
+		width: 100%;
+		page-break-inside: avoid;
+	}
+
+	.tickets-per-page-4 .print-ticket {
+		width: 48%;
+		height: 48%;
+		margin: 1%;
+		float: left;
+		border: 1px dashed #ccc;
+		padding: 10px;
+		box-sizing: border-box;
+	}
+
+	.tickets-per-page-6 .print-ticket {
+		width: 31.33%;
+		height: 31.33%;
+		margin: 1%;
+		float: left;
+		border: 1px dashed #ccc;
+		padding: 8px;
+		box-sizing: border-box;
+	}
+
+	.tickets-per-page-8 .print-ticket {
+		width: 23.5%;
+		height: 23.5%;
+		margin: 1%;
+		float: left;
+		border: 1px dashed #ccc;
+		padding: 6px;
+		box-sizing: border-box;
+	}
+
+	.no-print {
+		display: none !important;
+	}
+}

@@ -5,7 +5,6 @@ import bcrypt from "bcrypt";
 async function main() {
 	console.log("🌱 Seeding database with sample data...");
 
-	await prisma.notification.deleteMany();
 	await prisma.payment.deleteMany();
 	await prisma.ticket.deleteMany();
 	await prisma.customer.deleteMany();
@@ -79,20 +78,7 @@ async function main() {
 		},
 	});
 
-	await prisma.notification.create({
-		data: {
-			type: "TICKET_CONFIRMATION",
-			channel: "EMAIL",
-			subject: "Your VBS 2025 Ticket",
-			status: "SENT",
-			ticketId: ticket.id,
-			adminId: superAdmin.id,
-			payload: {
-				email: customer.email,
-				message: "Thank you for registering for VBS 2025!",
-			},
-		},
-	});
+	// Notification model removed - no longer needed
 
 	console.log("✅ Seed completed successfully.");
 	console.log("Super admin credentials -> email: superadmin@vbs.com | password: SuperAdmin123!");

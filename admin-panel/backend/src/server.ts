@@ -11,6 +11,9 @@ import { eventRouter } from "./routes/event.routes";
 import { paymentRouter } from "./routes/payment.routes";
 import { userRouter } from "./routes/user.routes";
 import { dashboardRouter } from "./routes/dashboard.routes";
+import { checkinRouter } from "./routes/checkin.routes";
+import { exportRouter } from "./routes/export.routes";
+import { activityRouter } from "./routes/activity.routes";
 
 const app = express();
 
@@ -29,6 +32,9 @@ app.use("/api/events", eventRouter);
 app.use("/api/payments", paymentRouter);
 app.use("/api/users", userRouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/api/checkin", checkinRouter);
+app.use("/api/export", exportRouter);
+app.use("/api/activity", activityRouter);
 
 app.use(errorHandler);
 

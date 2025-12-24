@@ -18,6 +18,7 @@ model AdminUser {
   role         AdminRole     @default(TICKET_MANAGER)
   status       AdminStatus   @default(ACTIVE)
   sessions     AdminSession[]
+  activities   ActivityLog[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
@@ -61,9 +62,10 @@ model Ticket {
   code           String        @unique
   ticketType     TicketType
   price          Decimal       @default(0)
-  status         TicketStatus  @default(ACTIVE)
-  paymentStatus  PaymentStatus @default(PENDING)
+  status         TicketStatus  @default(UNUSED)
+  paymentStatus  PaymentStatus @default(PAID)
   issuedAt       DateTime      @default(now())
+  checkedInAt    DateTime?
   updatedAt      DateTime      @updatedAt
   qrPayload      String?
   pdfUrl         String?
@@ -73,36 +75,34 @@ model Ticket {
   customer       Customer      @relation(fields: [customerId], references: [id])
   customerId     String
   payment        Payment?
+  activities    ActivityLog[]
 }
 
 model Payment {
   id           String        @id @default(cuid())
   amount       Decimal       @default(0)
   currency     String        @default("GHS")
-  status       PaymentStatus @default(PENDING)
+  status       PaymentStatus @default(PAID)
+  method       PaymentMethod @default(MOMO)
   provider     String?
   reference    String?
-  receivedAt   DateTime?
+  receivedAt   DateTime      @default(now())
   ticket       Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   ticketId     String        @unique
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
 
-model Notification {
-  id          String           @id @default(cuid())
-  type        NotificationType
-  channel     NotificationChannel
-  subject     String?
-  payload     Json?
-  status      NotificationStatus @default(PENDING)
-  error       String?
-  ticket      Ticket?          @relation(fields: [ticketId], references: [id])
+model ActivityLog {
+  id          String      @id @default(cuid())
+  action      ActivityAction
+  description String
+  metadata    Json?
+  ticket      Ticket?     @relation(fields: [ticketId], references: [id])
   ticketId    String?
-  admin       AdminUser?       @relation(fields: [adminId], references: [id])
-  adminId     String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  admin       AdminUser   @relation(fields: [adminId], references: [id])
+  adminId     String
+  createdAt   DateTime    @default(now())
 }
 
 enum AdminRole {
@@ -125,34 +125,26 @@ enum TicketType {
 }
 
 enum TicketStatus {
-  ACTIVE
+  UNUSED
+  USED
   CANCELLED
-  REDEEMED
-  REFUNDED
 }
 
 enum PaymentStatus {
-  PENDING
   PAID
-  FAILED
-  REFUNDED
-  PARTIAL
 }
 
-enum NotificationType {
-  TICKET_CONFIRMATION
-  PAYMENT_REMINDER
-  EVENT_ALERT
+enum PaymentMethod {
+  MOMO
+  CASH
+  TRANSFER
 }
 
-enum NotificationChannel {
-  EMAIL
-  SMS
-  SYSTEM
+enum ActivityAction {
+  TICKET_CREATED
+  TICKET_DELETED
+  TICKET_CHECKED_IN
+  TICKET_STATUS_CHANGED
+  PAYMENT_RECORDED
 }
 
-enum NotificationStatus {
-  PENDING
-  SENT
-  FAILED
-}

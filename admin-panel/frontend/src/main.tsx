@@ -11,6 +11,8 @@ import { EventsPage } from "./pages/Events.tsx";
 import { PaymentsPage } from "./pages/Payments.tsx";
 import { UsersPage } from "./pages/Users.tsx";
 import { SettingsPage } from "./pages/Settings.tsx";
+import { CheckInPage } from "./pages/CheckIn.tsx";
+import { ActivityLogPage } from "./pages/ActivityLog.tsx";
 import AdminPage from "./pages/Admin.tsx";
 import { ProtectedRoute } from "./components/ProtectedRoute.tsx";
 import { AdminLayout, PublicLayout } from "./layouts/AdminLayout.tsx";
@@ -27,11 +29,13 @@ createRoot(document.getElementById("root")!).render(
 					<Route element={<ProtectedRoute />}>
 						<Route element={<App />}>
 							<Route element={<AdminLayout />}>
-								<Route path="/" element={<Navigate to="/dashboard" replace />} />
+								<Route path="/" element={<DashboardPage />} />
 								<Route path="/dashboard" element={<DashboardPage />} />
 								<Route path="/tickets" element={<TicketsPage />} />
 								<Route path="/events" element={<EventsPage />} />
 								<Route path="/payments" element={<PaymentsPage />} />
+								<Route path="/checkin" element={<CheckInPage />} />
+								<Route path="/activity" element={<ActivityLogPage />} />
 								<Route path="/users" element={<UsersPage />} />
 								<Route path="/settings" element={<SettingsPage />} />
 								<Route path="/admin" element={<AdminPage />} />

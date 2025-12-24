@@ -1,8 +1,10 @@
 import { Router } from "express";
+import { requireAuth } from "../middleware/auth";
+import { getDashboardStats } from "../controllers/dashboard.controller";
 
-export const dashboardRouter = Router();
+const router = Router();
 
-dashboardRouter.get("/", (req, res) => {
-	res.status(501).json({ message: "Not implemented yet" });
-});
+router.get("/stats", requireAuth, getDashboardStats);
+
+export { router as dashboardRouter };
 

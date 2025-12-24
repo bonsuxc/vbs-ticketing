@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: vbs-admin-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate && npm run build
+    healthCheckPath: /health
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_FRONTEND_URL
+        sync: false
+      - key: PORT
+        value: 4000
+

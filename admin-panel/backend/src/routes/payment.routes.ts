@@ -1,16 +1,11 @@
 import { Router } from "express";
+import { requireAuth } from "../middleware/auth";
+import { getPayments, deletePayment } from "../controllers/payment.controller";
 
-export const paymentRouter = Router();
+const router = Router();
 
-paymentRouter.get("/", (req, res) => {
-	res.status(501).json({ message: "Not implemented yet" });
-});
+router.get("/", requireAuth, getPayments);
+router.delete("/:id", requireAuth, deletePayment);
 
-paymentRouter.post("/report", (req, res) => {
-	res.status(501).json({ message: "Not implemented yet" });
-});
-
-paymentRouter.patch("/:id/status", (req, res) => {
-	res.status(501).json({ message: "Not implemented yet" });
-});
+export { router as paymentRouter };
 
