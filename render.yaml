@@ -6,13 +6,13 @@ services:
     plan: free
     buildCommand: |
       npm ci
-      cd admin-frontend
+      cd admin-panel/frontend
       npm install
       npm run build
-      cd ..
+      cd ../..
       npm run build
     startCommand: node server.js
-    staticPublishPath: "./admin-frontend/dist"
+    staticPublishPath: "./admin-panel/frontend/dist"
     healthCheckPath: /
     autoDeploy: true
     envVars:
