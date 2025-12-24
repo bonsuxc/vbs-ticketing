@@ -4,19 +4,22 @@ services:
     env: node
     region: oregon
     plan: free
-    buildCommand: npm ci && npm run build
+    buildCommand: |
+      npm ci
+      cd admin-frontend
+      npm install
+      npm run build
+      cd ..
+      npm run build
     startCommand: node server.js
+    staticPublishPath: "./admin-frontend/dist"
     healthCheckPath: /
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
         value: 20
-      - key: MONGO_URI
-        sync: false
-      - key: HUBTEL_API_ID
-        sync: false
-      - key: HUBTEL_API_KEY
-        sync: false
+      - key: VITE_API_BASE_URL
+        value: https://ticketing-vbs.onrender.com/api
       - key: ADMIN_KEY
         sync: false
 
